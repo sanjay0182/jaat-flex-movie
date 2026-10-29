@@ -1,0 +1,21 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CORS test</title>
+<body style="font-family:sans-serif;background:#111;color:#eee;padding:16px">
+<h3>Browser se source API test</h3>
+<button id="b" style="padding:12px 20px;font-size:16px">Test chalao</button>
+<pre id="o" style="white-space:pre-wrap;font-size:14px"></pre>
+<script>
+const API="https://h5-api.aoneroom.com/wefeed-h5api-bff",o=document.getElementById("o");
+const log=t=>o.textContent+=t+"\n";
+async function t(name,url,headers){
+  try{const r=await fetch(url,{headers});const x=await r.text();log("OK  "+name+" -> status "+r.status+" | "+x.slice(0,120).replace(/\s+/g," "))}
+  catch(e){log("FAIL "+name+" -> "+e.message+" (browser ne block kiya)")}
+}
+document.getElementById("b").onclick=async()=>{
+  o.textContent="";
+  await t("1. simple GET (koi custom header nahi)",API+"/media-player/get-domain",{});
+  await t("2. GET + X-Client-Info",API+"/media-player/get-domain",{"X-Client-Info":'{"timezone":"Asia/Kolkata"}'});
+  await t("3. GET + Authorization",API+"/media-player/get-domain",{"Authorization":"Bearer test"});
+  log("\nKhatam. Ye poora screenshot bhej do.");
+};
+</script>
