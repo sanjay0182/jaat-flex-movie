@@ -1066,12 +1066,6 @@ async def proxy(request: Request, u: str = "", t: str = "", e: str = ""):
     c = httpx.AsyncClient(follow_redirects=True, timeout=30, **CK)
     try:
         r = await c.send(c.build_request("GET", u, headers=h), stream=True)
-        if r.status_code in (403, 426, 427):
-            await r.aclose()
-            fb_u, fb_h = await _try_fallback_hosts(u, h)
-            if fb_u:
-                u, h = fb_u, fb_h
-                r = await c.send(c.build_request("GET", u, headers=h), stream=True)
     except Exception as e:
         await c.aclose()
         return Response("bad gateway", status_code=502, headers={"Cache-Control": "no-store"})
@@ -1523,8 +1517,12 @@ PROBES = {
 
 
 @app.get("/probe")
-async def probe():
-    """Open in the browser: /probe -> shows which variant returns Indian/Hindi titles."""
+async def probe(cdn: int = 0, u: str = ""):
+    """Open in the browser: /probe -> shows which variant returns Indian/Hindi titles.
+    /probe?cdn=1 -> ALSO shows this server's own public IP and whether that IP can fetch a
+    real CDN video url (bcdnxw/bcdnw) with the usual headers - this is the test to run on
+    Render to confirm whether Render's IP is still accepted by the CDN or not.
+    /probe?cdn=1&u=<a stream url copied from /api/stream's response> tests that exact url."""
     out = {}
     async with httpx.AsyncClient(follow_redirects=True, timeout=25, **CK) as c:
         try:
@@ -1543,4 +1541,42 @@ async def probe():
                           "sample": [s.get("title") for op in ops for s in (op.get("subjects") or [])][:12]}
             except Exception as e:
                 out[k] = {"err": str(e)}
+        if cdn:
+            test_url = u
+            if not test_url:
+                try:
+                    j = await call(f"{API}/subject/search", payload={"keyword": "pattas", "page": 1, "perPage": 1})
+                    items = ((j.get("data") or {}).get("items") or (j.get("data") or {}).get("list") or [])
+                    if items:
+                        dd = await call(f"{API}/media-player/get-domain")
+                        dom = (dd.get("data") if isinstance(dd.get("data"), str) else "") or "https://netfilm.world"
+                        dom = dom.rstrip("/")
+                        it = items[0]
+                        ref = f"{dom}/spa/videoPlayPage/movies/{it['detailPath']}?id={it['subjectId']}&type=/movie/detail&detailSe=0&detailEp=0&lang=en"
+                        play = f"{dom}/wefeed-h5api-bff/subject/play?subjectId={it['subjectId']}&se=0&ep=0&detailPath={it['detailPath']}"
+                        pr = await call(play, hdr={"User-Agent": UA, "Accept": "application/json", "Referer": ref, "X-Client-Info": XCI, **INH})
+                        pd = pr.get("data") or {}
+                        us = [x.get("url") for x in (pd.get("streams") or []) if x.get("url")]
+                        test_url = us[0] if us else ""
+                        out["_auto_picked_movie"] = it.get("title")
+                except Exception as e:
+                    out["_auto_pick_err"] = str(e)[:150]
+            if not test_url:
+                out["cdn_test"] = {"err": "no stream url found/given - pass ?u=<url> manually"}
+            else:
+                rows = {}
+                combos = [
+                    ("no-headers", {}),
+                    ("ua-only", {"User-Agent": UA}),
+                    ("ua+ref-netfilm", {"User-Agent": UA, "Referer": "https://netfilm.world/", "Origin": "https://netfilm.world"}),
+                    ("ua+ref-moviebox", {"User-Agent": UA, "Referer": "https://moviebox.ph/", "Origin": "https://moviebox.ph"}),
+                ]
+                for label, hh in combos:
+                    try:
+                        rr = await c.get(test_url, headers={**hh, "Range": "bytes=0-15"})
+                        rows[label] = {"status": rr.status_code, "first_bytes": rr.content[:40].decode("utf-8", "ignore")}
+                    except Exception as e:
+                        rows[label] = {"err": str(e)[:120]}
+                from urllib.parse import urlparse as _up
+                out["cdn_test"] = {"tested_host": _up(test_url).netloc, "results": rows}
     return out
