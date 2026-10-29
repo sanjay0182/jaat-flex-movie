@@ -24,7 +24,8 @@ protect.start()
 # ---- direct mode: the browser loads pictures / video straight from the CDN, this server only does the small JSON work ----
 PUBLIC_BASE = os.getenv("PUBLIC_BASE", "").rstrip("/")      # https://your-app.onrender.com (needed when the page is hosted on Firebase)
 DIRECT_IMG = os.getenv("DIRECT_IMG", "1") != "0"            # 0 = pictures go through /img again
-DIRECT_VIDEO = os.getenv("DIRECT_VIDEO", "1") != "0"        # 0 = video goes through /p again
+DIRECT_VIDEO = os.getenv("DIRECT_VIDEO", "1") != "0"
+NO_RENDER_VIDEO = os.getenv("NO_RENDER_VIDEO") == "1"   # 1 = this server never carries video: no backup links, /p and /dl closed        # 0 = video goes through /p again
 
 _DEBUG = ("/lab", "/shape", "/diag", "/discover", "/peek", "/raw", "/probe")   # developer tools: admin key only
 
@@ -934,7 +935,10 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
                 _b.append({"kind": k_, "label": "%sp backup" % r_, "res": r_, "url": _fb, "backup": True})
         _d.sort(key=lambda x: -x["res"])
         _b.sort(key=lambda x: -x["res"])
-        src = _d + _b
+        if NO_RENDER_VIDEO:
+            src = [{k_: v_ for k_, v_ in x_.items() if k_ != "fb"} for x_ in _d]   # direct only, no server link at all
+        else:
+            src = _d + _b
     if os.environ.get("DEBUG_STREAM") == "1":
         _items = [("%sp" % (x_.get("resolutions") or "?"), x_["url"]) for x_ in (pd.get("streams") or []) if x_.get("url") and ".m3u8" not in x_["url"]]
         if _items:
@@ -957,6 +961,8 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
 
 @app.get("/p")
 async def proxy(request: Request, u: str = "", t: str = "", e: str = ""):
+    if NO_RENDER_VIDEO:
+        return Response("closed", status_code=410, headers={"Cache-Control": "no-store"})
     if e:
         u = protect.dec(e)
     if not u:
@@ -1113,6 +1119,8 @@ async def _dl_hls(u, name, check, done=None):
 
 @app.get("/dl")
 async def download(request: Request, u: str = "", name: str = "video", check: int = 0, t: str = "", e: str = ""):
+    if NO_RENDER_VIDEO:
+        return JSONResponse({"ok": False, "error": "Downloads are turned off."}, status_code=410)
     if e:
         u = protect.dec(e)
     if not u.startswith("http"):
