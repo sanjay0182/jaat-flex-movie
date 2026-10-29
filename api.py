@@ -43,8 +43,9 @@ async def _relay_play(subject_id, detail_path, se, ep):
         j = r.json()
         if j.get("ok") and j.get("data"):
             return j["data"], (j.get("domain") or "").rstrip("/")
-    except Exception:
-        pass
+        print("[RELAY] Space answered but no stream: http=%s ok=%s" % (r.status_code, j.get("ok")), flush=True)
+    except Exception as e:
+        print("[RELAY] Space call FAILED (sleeping / wrong STREAM_RELAY / wrong RELAY_KEY?):", repr(e)[:150], flush=True)
     return None
 DIRECT_IMG = os.getenv("DIRECT_IMG", "1") != "0"            # 0 = pictures go through /img again
 DIRECT_VIDEO = os.getenv("DIRECT_VIDEO", "1") != "0"        # 0 = video goes through /p again
@@ -870,6 +871,8 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
     play = f"{dom}/wefeed-h5api-bff/subject/play?subjectId={subject_id}&se={se}&ep={ep}&detailPath={detail_path}"
     PH = {"User-Agent": UA, "Accept": "application/json", "Referer": ref, "X-Client-Info": XCI, "Accept-Language": "en-IN,en;q=0.9", **INH}
     _relayed = await _relay_play(subject_id, detail_path, se, ep)
+    _via_relay = bool(_relayed)   # stream url was issued to the Space's IP -> only the Space may fetch it
+    pr = {}
     if _relayed:
         pd, _rdom = _relayed
         if _rdom:
@@ -898,6 +901,7 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
             ref2 = f"{dom}/spa/videoPlayPage/movies/{detail_path}?id={subject_id}&type=/movie/detail&detailSe={se2}&detailEp={ep2}&lang=en"
             play2 = f"{dom}/wefeed-h5api-bff/subject/play?subjectId={subject_id}&se={se2}&ep={ep2}&detailPath={detail_path}"
             _relayed2 = await _relay_play(subject_id, detail_path, se2, ep2)
+            r2 = {}
             if _relayed2:
                 d2 = _relayed2[0]
             else:
@@ -923,7 +927,7 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
     # The "streams" links are on the bcdnxw host, which answers 427 to Cloudflare IPs (= the Worker).  The download API gives the same
     # movie on bcdnw, which Cloudflare IPs can fetch.  With a Worker, use those links for the qualities that have one (others stay as they are).
     # DL_LINKS=0 turns this off.
-    if _worker_bases() and os.environ.get("DL_LINKS") != "0":
+    if _worker_bases() and not _via_relay and os.environ.get("DL_LINKS") != "0":
         try:
             _dl = await call(f"{dom}/wefeed-h5api-bff/subject/download?subjectId={subject_id}&se={used[0]}&ep={used[1]}&detailPath={detail_path}", hdr={**PH, "Referer": ref})
             _dsrc = []
@@ -947,7 +951,7 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
         except Exception:
             pass
     src.sort(key=lambda x: -x["res"])
-    if DIRECT_VIDEO:
+    if DIRECT_VIDEO and not _via_relay:
         # direct links first (the browser talks to the CDN itself); the same qualities again as "backup" (through this server)
         _d, _b = [], []
         for x_ in (pd.get("hls") or []):
