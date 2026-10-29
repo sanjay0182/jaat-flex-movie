@@ -10,5 +10,5 @@ services:
         value: https://YOUR-SITE.web.app,https://YOUR-SITE.firebaseapp.com
       - key: DIRECT_IMG           # 0 = images wapas server se
         value: "1"
-      - key: DIRECT_VIDEO         # 0 = video wapas server se
-        value: "1"
+      - key: DIRECT_VIDEO         # 0 = video server ke /p proxy se (sahi Referer lagta hai)
+        value: "0"
