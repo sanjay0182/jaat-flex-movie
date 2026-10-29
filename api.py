@@ -190,6 +190,37 @@ H.update(json.loads(os.getenv("MB_HEADERS", "{}")))  # extra headers can be supp
 _tok = {"v": "", "t": 0}
 _ref = {"v": "https://netfilm.world/"}
 
+# Extra CDN hosts seen in real traffic captures (Reqable). When the primary stream host (bcdnxw/bcdnw)
+# answers 426/427 to our IP, we swap the host for one of these and retry with the same path+query -
+# some of these CDN edges do not block datacenter IPs the way bcdnxw does.
+_FALLBACK_CDN_HOSTS = [h.strip() for h in os.environ.get(
+    "FALLBACK_CDN_HOSTS", "cacdn.hakunaymatata.com,sbcdn5.hakunaymatata.com"
+).split(",") if h.strip()]
+_ALT_UA = ("com.community.oneroom/50020131 (Linux; U; Android 10; en_IN; Redmi Note 7; "
+           "Build/QKQ1.190910.002; Cronet/156.0.8078.25)")
+
+
+async def _try_fallback_hosts(u, headers, timeout=15):
+    """Re-fetch a stream url (HEAD-ish, only first bytes) on each fallback CDN host, same path+query,
+    with the alternate UA too. Returns (working_url, working_headers) or (None, None)."""
+    from urllib.parse import urlparse as _up, urlunparse as _uup
+    p = _up(u)
+    for host in _FALLBACK_CDN_HOSTS:
+        if host == p.netloc.split(":")[0]:
+            continue
+        cand = _uup((p.scheme, host, p.path, p.params, p.query, p.fragment))
+        for ua in (headers.get("User-Agent"), _ALT_UA):
+            h2 = {**headers, "User-Agent": ua, "Range": "bytes=0-15"}
+            try:
+                async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, **CK) as c:
+                    r = await c.get(cand, headers=h2)
+                if r.status_code in (200, 206):
+                    print("[FALLBACK] %s -> %s ok (ua=%s)" % (p.netloc, host, "alt" if ua == _ALT_UA else "orig"), flush=True)
+                    return cand, {**headers, "User-Agent": ua}
+            except Exception as e:
+                print("[FALLBACK] %s -> %s failed: %r" % (p.netloc, host, e), flush=True)
+    return None, None
+
 
 def _grab(r):
     xu = r.headers.get("x-user")
@@ -1035,6 +1066,12 @@ async def proxy(request: Request, u: str = "", t: str = "", e: str = ""):
     c = httpx.AsyncClient(follow_redirects=True, timeout=30, **CK)
     try:
         r = await c.send(c.build_request("GET", u, headers=h), stream=True)
+        if r.status_code in (403, 426, 427):
+            await r.aclose()
+            fb_u, fb_h = await _try_fallback_hosts(u, h)
+            if fb_u:
+                u, h = fb_u, fb_h
+                r = await c.send(c.build_request("GET", u, headers=h), stream=True)
     except Exception as e:
         await c.aclose()
         return Response("bad gateway", status_code=502, headers={"Cache-Control": "no-store"})
