@@ -1,21 +1,65 @@
 <!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CORS test</title>
+<title>Direct play test</title>
 <body style="font-family:sans-serif;background:#111;color:#eee;padding:16px">
-<h3>Browser se source API test</h3>
-<button id="b" style="padding:12px 20px;font-size:16px">Test chalao</button>
-<pre id="o" style="white-space:pre-wrap;font-size:14px"></pre>
+<h3>Browser se poora flow test</h3>
+<input id="q" value="pattas" style="padding:10px;font-size:16px;width:60%"> 
+<button id="b" style="padding:10px 16px;font-size:16px">Test chalao</button>
+<pre id="o" style="white-space:pre-wrap;font-size:13px"></pre>
+<video id="v" muted playsinline style="width:100%;max-height:200px;background:#000"></video>
 <script>
 const API="https://h5-api.aoneroom.com/wefeed-h5api-bff",o=document.getElementById("o");
-const log=t=>o.textContent+=t+"\n";
-async function t(name,url,headers){
-  try{const r=await fetch(url,{headers});const x=await r.text();log("OK  "+name+" -> status "+r.status+" | "+x.slice(0,120).replace(/\s+/g," "))}
-  catch(e){log("FAIL "+name+" -> "+e.message+" (browser ne block kiya)")}
-}
-document.getElementById("b").onclick=async()=>{
+const log=t=>{o.textContent+=t+"\n"};
+const XCI='{"timezone":"Asia/Kolkata"}';
+const short=x=>String(x).replace(/\s+/g," ").slice(0,140);
+async function run(){
   o.textContent="";
-  await t("1. simple GET (koi custom header nahi)",API+"/media-player/get-domain",{});
-  await t("2. GET + X-Client-Info",API+"/media-player/get-domain",{"X-Client-Info":'{"timezone":"Asia/Kolkata"}'});
-  await t("3. GET + Authorization",API+"/media-player/get-domain",{"Authorization":"Bearer test"});
-  log("\nKhatam. Ye poora screenshot bhej do.");
-};
+  let tok="";
+  try{
+    const r=await fetch(API+"/home?host=moviebox.ph",{headers:{"X-Client-Info":XCI}});
+    const xu=r.headers.get("x-user");
+    log("1. /home status "+r.status+" | x-user header: "+(xu?"MILA":"nahi dikha (CORS ne chhupaya)"));
+    if(xu){try{tok=JSON.parse(xu).token||""}catch(e){}}
+    log("   token: "+(tok?"mil gaya":"nahi mila"));
+  }catch(e){log("1. FAIL /home -> "+e.message)}
+  const H={"X-Client-Info":XCI};if(tok)H["Authorization"]="Bearer "+tok;
+  let item=null;
+  try{
+    const r=await fetch(API+"/subject/search",{method:"POST",headers:{...H,"Content-Type":"application/json"},body:JSON.stringify({keyword:document.getElementById("q").value,page:1,perPage:5})});
+    const j=await r.json();const d=j.data||{};const arr=d.items||d.list||[];
+    item=arr.find(x=>x.subjectId&&x.detailPath);
+    log("2. search status "+r.status+" | items "+arr.length+(item?" | "+item.title:""));
+  }catch(e){log("2. FAIL search -> "+e.message)}
+  if(!item){log("\nAage nahi bad sakta.");return}
+  let dom="";
+  try{
+    const r=await fetch(API+"/media-player/get-domain",{headers:H});const j=await r.json();
+    dom=(typeof j.data==="string"?j.data:"").replace(/\/+$/,"")||"https://netfilm.world";
+    log("3. get-domain: "+dom);
+  }catch(e){log("3. FAIL get-domain -> "+e.message);return}
+  let streams=[];
+  try{
+    const u=dom+"/wefeed-h5api-bff/subject/play?subjectId="+item.subjectId+"&se=0&ep=0&detailPath="+item.detailPath;
+    const r=await fetch(u,{headers:H});const j=await r.json();const pd=j.data||{};
+    streams=(pd.streams||[]).filter(s=>s.url);
+    log("4. play status "+r.status+" | hasResource "+pd.hasResource+" | streams "+streams.length+" | hls "+((pd.hls||[]).length));
+  }catch(e){log("4. FAIL play -> "+e.message+" (play API ko browser se block mila)");return}
+  if(!streams.length){log("\nStream link nahi mila.");return}
+  streams.sort((a,b)=>(a.resolutions||0)-(b.resolutions||0));
+  const s=streams[0],su=s.url;
+  log("5. video link: "+(s.resolutions||"?")+"p | "+(su.includes(".m3u8")?"hls":"mp4"));
+  try{
+    const r=await fetch(su,{headers:{Range:"bytes=0-15"}});
+    log("6. video fetch status "+r.status);
+  }catch(e){log("6. video fetch (JS) FAIL -> "+e.message+" (CORS, par <video> alag baat hai)")}
+  const v=document.getElementById("v");
+  const res=await new Promise(res=>{
+    const t=setTimeout(()=>res("TIMEOUT 10s - metadata nahi aaya"),10000);
+    v.onloadedmetadata=()=>{clearTimeout(t);res("CHAL GAYA - duration "+Math.round(v.duration)+"s")};
+    v.onerror=()=>{clearTimeout(t);res("ERROR code "+(v.error&&v.error.code))};
+    v.src=su;v.load();
+  });
+  log("7. <video> seedha: "+res);
+  log("\nKhatam. Poora screenshot bhej do.");
+}
+document.getElementById("b").onclick=run;
 </script>
