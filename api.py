@@ -23,9 +23,31 @@ protect.start()
 
 # ---- direct mode: the browser loads pictures / video straight from the CDN, this server only does the small JSON work ----
 PUBLIC_BASE = os.getenv("PUBLIC_BASE", "").rstrip("/")      # https://your-app.onrender.com (needed when the page is hosted on Firebase)
+STREAM_RELAY = os.getenv("STREAM_RELAY", "").rstrip("/")   # https://xxx.hf.space  -> that Space fetches stream.url instead of this server
+RELAY_KEY = os.getenv("RELAY_KEY", "")                      # must match RELAY_KEY on the Space
+
+
+async def _relay_play(subject_id, detail_path, se, ep):
+    """When STREAM_RELAY is set, ask the Space to call the play API with the full
+    blitz-style headers (Referer/Origin/India-IP). Falls back to None on any problem,
+    so the caller does the old direct call instead."""
+    if not STREAM_RELAY:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=25) as c:
+            r = await c.get(
+                f"{STREAM_RELAY}/stream",
+                params={"subjectId": subject_id, "se": se, "ep": ep, "detailPath": detail_path},
+                headers=({"X-Relay-Key": RELAY_KEY} if RELAY_KEY else {}),
+            )
+        j = r.json()
+        if j.get("ok") and j.get("data"):
+            return j["data"], (j.get("domain") or "").rstrip("/")
+    except Exception:
+        pass
+    return None
 DIRECT_IMG = os.getenv("DIRECT_IMG", "1") != "0"            # 0 = pictures go through /img again
-DIRECT_VIDEO = os.getenv("DIRECT_VIDEO", "1") != "0"
-NO_RENDER_VIDEO = os.getenv("NO_RENDER_VIDEO") == "1"   # 1 = this server never carries video: no backup links, /p and /dl closed        # 0 = video goes through /p again
+DIRECT_VIDEO = os.getenv("DIRECT_VIDEO", "1") != "0"        # 0 = video goes through /p again
 
 _DEBUG = ("/lab", "/shape", "/diag", "/discover", "/peek", "/raw", "/probe")   # developer tools: admin key only
 
@@ -847,12 +869,18 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
     _ref["v"] = dom + "/"
     play = f"{dom}/wefeed-h5api-bff/subject/play?subjectId={subject_id}&se={se}&ep={ep}&detailPath={detail_path}"
     PH = {"User-Agent": UA, "Accept": "application/json", "Referer": ref, "X-Client-Info": XCI, "Accept-Language": "en-IN,en;q=0.9", **INH}
-    pr = await call(play, hdr=PH)
-    pd = pr.get("data") or {}
-    if not pd.get("hasResource"):  # retry once with a fresh token
-        await ensure_token(True)
+    _relayed = await _relay_play(subject_id, detail_path, se, ep)
+    if _relayed:
+        pd, _rdom = _relayed
+        if _rdom:
+            dom = _rdom
+    else:
         pr = await call(play, hdr=PH)
         pd = pr.get("data") or {}
+        if not pd.get("hasResource"):  # retry once with a fresh token
+            await ensure_token(True)
+            pr = await call(play, hdr=PH)
+            pd = pr.get("data") or {}
     used = (se, ep)
     if not pd.get("hasResource"):
         # Shorts (short dramas) and some series number their episodes differently (season 0 or 1, episode 0 or 1):
@@ -869,8 +897,12 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
                 continue
             ref2 = f"{dom}/spa/videoPlayPage/movies/{detail_path}?id={subject_id}&type=/movie/detail&detailSe={se2}&detailEp={ep2}&lang=en"
             play2 = f"{dom}/wefeed-h5api-bff/subject/play?subjectId={subject_id}&se={se2}&ep={ep2}&detailPath={detail_path}"
-            r2 = await call(play2, hdr={**PH, "Referer": ref2})
-            d2 = r2.get("data") or {}
+            _relayed2 = await _relay_play(subject_id, detail_path, se2, ep2)
+            if _relayed2:
+                d2 = _relayed2[0]
+            else:
+                r2 = await call(play2, hdr={**PH, "Referer": ref2})
+                d2 = r2.get("data") or {}
             if d2.get("hasResource"):
                 pr, pd, used = r2, d2, (se2, ep2)
                 break
@@ -935,10 +967,7 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
                 _b.append({"kind": k_, "label": "%sp backup" % r_, "res": r_, "url": _fb, "backup": True})
         _d.sort(key=lambda x: -x["res"])
         _b.sort(key=lambda x: -x["res"])
-        if NO_RENDER_VIDEO:
-            src = [{k_: v_ for k_, v_ in x_.items() if k_ != "fb"} for x_ in _d]   # direct only, no server link at all
-        else:
-            src = _d + _b
+        src = _d + _b
     if os.environ.get("DEBUG_STREAM") == "1":
         _items = [("%sp" % (x_.get("resolutions") or "?"), x_["url"]) for x_ in (pd.get("streams") or []) if x_.get("url") and ".m3u8" not in x_["url"]]
         if _items:
@@ -961,8 +990,6 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
 
 @app.get("/p")
 async def proxy(request: Request, u: str = "", t: str = "", e: str = ""):
-    if NO_RENDER_VIDEO:
-        return Response("closed", status_code=410, headers={"Cache-Control": "no-store"})
     if e:
         u = protect.dec(e)
     if not u:
@@ -1119,8 +1146,6 @@ async def _dl_hls(u, name, check, done=None):
 
 @app.get("/dl")
 async def download(request: Request, u: str = "", name: str = "video", check: int = 0, t: str = "", e: str = ""):
-    if NO_RENDER_VIDEO:
-        return JSONResponse({"ok": False, "error": "Downloads are turned off."}, status_code=410)
     if e:
         u = protect.dec(e)
     if not u.startswith("http"):
