@@ -47,6 +47,27 @@ async def _relay_play(subject_id, detail_path, se, ep):
     except Exception as e:
         print("[RELAY] Space call FAILED (sleeping / wrong STREAM_RELAY / wrong RELAY_KEY?):", repr(e)[:150], flush=True)
     return None
+async def _relay_download(subject_id, detail_path, se, ep):
+    """Same as _relay_play but for the download API (bcdnw links). The Space asks for them, so the
+    links are issued to the Space's IP - the same IP that will fetch them later through /p."""
+    if not STREAM_RELAY:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=25) as c:
+            r = await c.get(
+                f"{STREAM_RELAY}/download",
+                params={"subjectId": subject_id, "se": se, "ep": ep, "detailPath": detail_path},
+                headers=({"X-Relay-Key": RELAY_KEY} if RELAY_KEY else {}),
+            )
+        j = r.json()
+        if j.get("ok") and j.get("data"):
+            return {"data": j["data"]}
+        print("[RELAY] Space /download answered but no links: http=%s ok=%s" % (r.status_code, j.get("ok")), flush=True)
+    except Exception as e:
+        print("[RELAY] Space /download FAILED:", repr(e)[:150], flush=True)
+    return None
+
+
 DIRECT_IMG = os.getenv("DIRECT_IMG", "1") != "0"            # 0 = pictures go through /img again
 DIRECT_VIDEO = os.getenv("DIRECT_VIDEO", "1") != "0"        # 0 = video goes through /p again
 
@@ -927,9 +948,12 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
     # The "streams" links are on the bcdnxw host, which answers 427 to Cloudflare IPs (= the Worker).  The download API gives the same
     # movie on bcdnw, which Cloudflare IPs can fetch.  With a Worker, use those links for the qualities that have one (others stay as they are).
     # DL_LINKS=0 turns this off.
-    if _worker_bases() and not _via_relay and os.environ.get("DL_LINKS") != "0":
+    if _worker_bases() and os.environ.get("DL_LINKS") != "0":
         try:
-            _dl = await call(f"{dom}/wefeed-h5api-bff/subject/download?subjectId={subject_id}&se={used[0]}&ep={used[1]}&detailPath={detail_path}", hdr={**PH, "Referer": ref})
+            if _via_relay:
+                _dl = await _relay_download(subject_id, detail_path, used[0], used[1]) or {}
+            else:
+                _dl = await call(f"{dom}/wefeed-h5api-bff/subject/download?subjectId={subject_id}&se={used[0]}&ep={used[1]}&detailPath={detail_path}", hdr={**PH, "Referer": ref})
             _dsrc = []
             for x in ((_dl.get("data") or {}).get("downloads") or []):
                 if isinstance(x, dict) and x.get("url"):
@@ -941,7 +965,9 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
                 src = [x for x in src if not (x["kind"] == "mp4" and x["res"] in _have)]
                 # qualities with no download link (usually 1080p) can not be fetched by the Worker (bcdnxw answers 427 to Cloudflare IPs),
                 # so they go through THIS server instead (uses this server's bandwidth, only when a viewer picks that quality).  DL_DIRECT=0 = keep them on the Worker.
-                if os.environ.get("DL_DIRECT") != "0":
+                if _via_relay and os.environ.get("DL_KEEP_STREAMS") != "1":
+                    src = [x for x in src if x["kind"] != "mp4"]   # bcdnxw answers 426 to server IPs, only the bcdnw links are playable
+                if os.environ.get("DL_DIRECT") != "0" and not _via_relay:
                     for s_ in (pd.get("streams") or []):
                         _r = int(s_.get("resolutions") or 0)
                         if s_.get("url") and ".m3u8" not in s_["url"] and _r not in _have:
