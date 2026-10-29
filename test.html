@@ -37,12 +37,19 @@ async function run(){
     log("3. get-domain: "+dom);
   }catch(e){log("3. FAIL get-domain -> "+e.message);return}
   let streams=[];
-  try{
-    const u=dom+"/wefeed-h5api-bff/subject/play?subjectId="+item.subjectId+"&se=0&ep=0&detailPath="+item.detailPath;
-    const r=await fetch(u,{headers:H});const j=await r.json();const pd=j.data||{};
-    streams=(pd.streams||[]).filter(s=>s.url);
-    log("4. play status "+r.status+" | hasResource "+pd.hasResource+" | streams "+streams.length+" | hls "+((pd.hls||[]).length));
-  }catch(e){log("4. FAIL play -> "+e.message+" (play API ko browser se block mila)");return}
+  const combos=[[0,0],[1,1],[0,1]],pols=["default","no-referrer"];
+  outer:
+  for(const [se,ep] of combos){for(const pol of pols){
+    try{
+      const u=dom+"/wefeed-h5api-bff/subject/play?subjectId="+item.subjectId+"&se="+se+"&ep="+ep+"&detailPath="+item.detailPath;
+      const hh={...H,"X-Request-Lang":"en"};
+      const opt={headers:hh};if(pol==="no-referrer")opt.referrerPolicy="no-referrer";
+      const r=await fetch(u,opt);const j=await r.json();const pd=j.data||{};
+      const st=(pd.streams||[]).filter(x=>x.url);
+      log("4. se"+se+" ep"+ep+" "+pol+" -> http "+r.status+" code "+j.code+" msg "+short(j.message||"")+" | hasResource "+pd.hasResource+" | streams "+st.length+" | hls "+((pd.hls||[]).length));
+      if(st.length){streams=st;break outer}
+    }catch(e){log("4. se"+se+" ep"+ep+" "+pol+" FAIL -> "+e.message)}
+  }}
   if(!streams.length){log("\nStream link nahi mila.");return}
   streams.sort((a,b)=>(a.resolutions||0)-(b.resolutions||0));
   const s=streams[0],su=s.url;
