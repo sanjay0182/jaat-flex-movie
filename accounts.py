@@ -385,16 +385,16 @@ def _load(s):
         return {}
 
 
-# ---- watch progress (latest episode per title, 40 titles max) ----
+# ---- watch progress (latest episode per title, 50 titles max (one row per title/series)) ----
 def save_progress(uid, sid, season, episode, pos, dur, meta=None):
     q("INSERT OR REPLACE INTO progress VALUES(?,?,?,?,?,?,?,?)",
       (uid, sid, int(season or 0), int(episode or 0), float(pos or 0), float(dur or 0), time.time(), _meta(meta)))
-    q("DELETE FROM progress WHERE user_id=? AND sid NOT IN (SELECT sid FROM progress WHERE user_id=? ORDER BY updated DESC LIMIT 40)", (uid, uid))
+    q("DELETE FROM progress WHERE user_id=? AND sid NOT IN (SELECT sid FROM progress WHERE user_id=? ORDER BY updated DESC LIMIT 50)", (uid, uid))
 
 
 def get_progress(uid):
     out = []
-    for r in q("SELECT sid,season,episode,pos,dur,meta FROM progress WHERE user_id=? ORDER BY updated DESC LIMIT 40", (uid,)):
+    for r in q("SELECT sid,season,episode,pos,dur,meta FROM progress WHERE user_id=? ORDER BY updated DESC LIMIT 50", (uid,)):
         m = _load(r[5])
         out.append(dict(sid=r[0], season=int(r[1]), episode=int(r[2]), pos=float(r[3]), dur=float(r[4]),
                         slug=m.get("slug", ""), name=m.get("name", ""), poster_url=m.get("poster_url", "")))
