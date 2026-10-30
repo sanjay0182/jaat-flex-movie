@@ -34,7 +34,7 @@ async def _relay_play(subject_id, detail_path, se, ep):
     if not STREAM_RELAY:
         return None
     try:
-        async with httpx.AsyncClient(timeout=25) as c:
+        async with httpx.AsyncClient(timeout=40) as c:
             r = await c.get(
                 f"{STREAM_RELAY}/stream",
                 params={"subjectId": subject_id, "se": se, "ep": ep, "detailPath": detail_path},
@@ -46,7 +46,7 @@ async def _relay_play(subject_id, detail_path, se, ep):
         print("[RELAY] Space answered but no stream: http=%s ok=%s" % (r.status_code, j.get("ok")), flush=True)
     except Exception as e:
         print("[RELAY] Space call FAILED (sleeping / wrong STREAM_RELAY / wrong RELAY_KEY?):", repr(e)[:150], flush=True)
-    return None
+    return ({}, "")   # relay is set: NEVER ask MovieBox for the video from this server (empty = "no stream")
 async def _relay_download(subject_id, detail_path, se, ep):
     """Same as _relay_play but for the download API (bcdnw links). The Space asks for them, so the
     links are issued to the Space's IP - the same IP that will fetch them later through /p."""
@@ -998,7 +998,7 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
                 # so they go through THIS server instead (uses this server's bandwidth, only when a viewer picks that quality).  DL_DIRECT=0 = keep them on the Worker.
                 if _via_relay and os.environ.get("DL_KEEP_STREAMS") != "1":
                     src = [x for x in src if x["kind"] != "mp4"]   # bcdnxw answers 426 to server IPs, only the bcdnw links are playable
-                if os.environ.get("DL_DIRECT") != "0" and not _via_relay:
+                if os.environ.get("DL_DIRECT") != "0" and not _via_relay and not _rs:   # _rs (WORKER_RESOLVE=1): Wispbyte resolves these itself, they must NOT go back through this server
                     for s_ in (pd.get("streams") or []):
                         _r = int(s_.get("resolutions") or 0)
                         if s_.get("url") and ".m3u8" not in s_["url"] and _r not in _have:
