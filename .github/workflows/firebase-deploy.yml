@@ -11,7 +11,7 @@ jobs:
       - name: public folder banao
         run: |
           mkdir public
-          cp index.html captcha.js config.js test.html icon-192.png icon-512.png app.webmanifest public/
+          cp index.html captcha.js config.js test.html icon-192.png icon-512.png app.webmanifest sw.js tlsdec.js public/
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
