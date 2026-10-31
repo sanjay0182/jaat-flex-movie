@@ -1465,6 +1465,20 @@ async def api_login(request: Request):
 # /api/captcha/verify  {id, pow, text} -> {ok:true, token, ttl} | {ok:false, why, retry:true}
 # /api/captcha/status  -> {pass: bool, mode}
 # The page sends the token in header X-Captcha; protect.ctx() checks it (signed, bound to the IP).
+@app.get("/sw.js")
+async def sw_js():
+    """service worker: opens the relay's locked video bytes on the phone (see sw.js).  SW_OFF=1 = removes itself from every phone"""
+    if os.getenv("SW_OFF", "0") == "1":
+        off = "self.addEventListener('install',()=>self.skipWaiting());self.addEventListener('activate',e=>e.waitUntil(self.registration.unregister()));"
+        return Response(off, media_type="application/javascript", headers={"Cache-Control": "no-cache"})
+    return FileResponse("sw.js", media_type="application/javascript", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/tlsdec.js")
+async def tlsdec_js():
+    return FileResponse("tlsdec.js", media_type="application/javascript", headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/captcha.js")
 async def captcha_js():
     return FileResponse("captcha.js", media_type="application/javascript", headers={"Cache-Control": "public, max-age=3600"})

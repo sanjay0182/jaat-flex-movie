@@ -1814,6 +1814,8 @@ async function reels(slug,id){
   document.addEventListener("keydown",kd)}
 function route(){if(window.__splashHide)setTimeout(window.__splashHide,300);kill();$app.classList.remove("w");const p=location.hash.replace(/^#\/?/,"").split("/").filter(Boolean).map(decodeURIComponent);drawNav();scrollTo({top:0,left:0,behavior:"instant"});
   if(p[0]==="reels"){try{history.replaceState(null,"","#/show/"+encodeURIComponent(p[1]||"")+"/"+encodeURIComponent(p[2]||""))}catch(e){}return show(p[1],p[2])}if(p[0]==="show")return show(p[1],p[2]);if(p[0]==="watch")return watch(p[1],p[2],p[3]||0,p[4]||0);if(p[0]==="list")return listPage();if(p[0]==="account")return accountPage();if(p[0]==="midnight")return midnightPage();if(p[0]==="all")return allPage(p[1]);if(p[0]==="browse")return browsePage(p[1]);home()}
+/* video opened on the phone: the relay sends locked bytes, sw.js opens them (falls back to the normal way by itself) */
+try{if("serviceWorker"in navigator&&window.isSecureContext&&crypto&&crypto.subtle)navigator.serviceWorker.register("/sw.js").catch(()=>{})}catch(e){}
 addEventListener("hashchange",e=>{try{SCR[new URL(e.oldURL).hash]=lastY}catch(_){}BACKY=FWD?0:(SCR[location.hash]||0);FWD=0;clearInterval(RT);route();if(BACKY>40)restoreY(BACKY)});route();
 </script>
 </body>
