@@ -8,7 +8,7 @@ JaatFlix API (MovieBox backend)
 - Optional: env IN_PROXY=http://user:pass@indian-proxy:port routes all calls through an Indian IP
 """
 import asyncio, hmac, json, os, re, time
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urljoin, urlsplit
 import httpx
 import accounts
 import captcha
@@ -1049,6 +1049,120 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
     return {"has_resource": bool(src), "sources": src, "note": None if src else "No stream was found for this title.", "why": why, "cap": cap, "_domain": dom}
 
 
+# ---- client-side resolve: the PHONE asks MovieBox itself (token + play links) and this server only SIGNS the links ----
+# (so the token / play request does not cost this server anything, and is faster for the viewer).  The links are then carried by the
+# Wispbyte relay as before (Referer swap).  Only https CDN hosts listed in CLIENT_CDN_HOSTS are signed (default hakunaymatata.com and
+# its sub-domains), so /api/sign can never turn this site into an open proxy.  The same stream_gate (captcha / limits) runs first.
+# CLIENT_RESOLVE=0 switches it off (the page then uses /api/stream as before).
+CLIENT_RESOLVE = os.getenv("CLIENT_RESOLVE", "1") != "0"
+CLIENT_CDN_HOSTS = [h.strip().lower() for h in os.getenv("CLIENT_CDN_HOSTS", "hakunaymatata.com").split(",") if h.strip()]
+
+
+def _cdn_ok(u):
+    try:
+        sp = urlsplit(u)
+        h = (sp.hostname or "").lower()
+        return sp.scheme == "https" and bool(h) and protect.safe_url(u) and any(h == d or h.endswith("." + d) for d in CLIENT_CDN_HOSTS)
+    except Exception:
+        return False
+
+
+@app.post("/api/sign")
+async def sign_links(request: Request):
+    if not CLIENT_RESOLVE:
+        return JSONResponse({"error": "off"}, status_code=404)
+    try:
+        b = await request.json()
+        assert isinstance(b, dict)
+    except Exception:
+        return JSONResponse({"error": "bad request"}, status_code=400)
+    subject_id, detail_path = str(b.get("id") or ""), str(b.get("detail_path") or "")
+    try:
+        se, ep = int(b.get("se") or 0), int(b.get("ep") or 0)
+    except Exception:
+        se, ep = 0, 0
+    items = b.get("items")
+    if not subject_id or not detail_path or not isinstance(items, list):
+        return JSONResponse({"error": "bad request"}, status_code=400)
+    c = protect.ctx(request)
+    user = await _me(request)
+    refuse = protect.stream_gate(request, user, subject_id, detail_path, se, ep)
+    if refuse is not None:
+        return JSONResponse(refuse[1], status_code=refuse[0])
+    sess = protect.new_session(c)
+    hj = bool(b.get("hj"))
+    src = []
+    for x in items[:40]:
+        u = x.get("u") if isinstance(x, dict) else None
+        if not isinstance(u, str) or not _cdn_ok(u):
+            continue
+        m3 = ".m3u8" in u.split("?")[0].lower()
+        try:
+            res = int(x.get("res") or 0)
+        except Exception:
+            res = 0
+        if m3 and x.get("auto"):
+            src.append({"kind": "hls", "label": "Auto (HLS)", "res": 9999, "url": _px(u, c, sess, bind=hj)})
+        else:
+            src.append({"kind": "hls" if m3 else "mp4", "label": "%sp" % res, "res": res, "url": _px(u, c, sess, bind=hj and m3)})
+    src.sort(key=lambda y: -y["res"])
+    cp = b.get("cap") if isinstance(b.get("cap"), dict) else {}
+    cap = {"id": (str(cp.get("id"))[:64] if cp.get("id") is not None else None), "fmt": str(cp.get("fmt") or "MP4")[:16]}
+    return {"has_resource": bool(src), "sources": src, "note": None if src else "No stream was found for this title.", "why": None, "cap": cap, "_domain": _ref["v"].rstrip("/")}
+
+
+# ---- http first for /p: if the CDN accepts plain http:// this server needs no TLS decrypt for the video bytes ----
+# HTTP_FIRST=1 (default) / 0 = always https.  Result remembered per CDN host for HTTP_TTL seconds (default 24 h):
+#   works -> http for 24 h ; refused -> https for 24 h ; then ONE new test.  One failed http request while http is
+#   marked "works" is repeated over https only for that request (the mark stays).
+HTTP_FIRST = os.getenv("HTTP_FIRST", "1") != "0"
+HTTP_TTL = int(os.getenv("HTTP_TTL", "86400"))
+_HTTP_MEM = {}          # host -> (True/False, time of the test)
+
+
+def _http_mode(host):
+    m = _HTTP_MEM.get(host)
+    if not m or time.time() - m[1] > HTTP_TTL:
+        return "test"
+    return "http" if m[0] else "https"
+
+
+def _to_http(u):
+    sp = urlsplit(u)
+    host = sp.hostname or ""
+    if ":" in host:
+        host = "[" + host + "]"
+    port = sp.port
+    return "http://" + host + (":%d" % port if port and port != 443 else "") + (sp.path or "/") + (("?" + sp.query) if sp.query else "")
+
+
+async def _try_http(u, h):
+    """-> (client, response) when the CDN answers a plain 200/206 body over http://, else None"""
+    host = urlsplit(u).hostname or ""
+    mode = _http_mode(host)
+    if mode == "https":
+        return None
+    c2 = httpx.AsyncClient(follow_redirects=False, timeout=30, **CK)
+    ok = False
+    r2 = None
+    try:
+        r2 = await c2.send(c2.build_request("GET", _to_http(u), headers=h), stream=True)
+        ok = r2.status_code in (200, 206) and "mpegurl" not in r2.headers.get("content-type", "").lower()
+    except Exception:
+        ok = False
+    if mode == "test":
+        _HTTP_MEM[host] = (ok, time.time())
+        print("[proxy] http test %s: %s" % (host, "works (no TLS decrypt)" if ok else "refused - https"), flush=True)
+    if ok:
+        return c2, r2
+    try:
+        if r2 is not None:
+            await r2.aclose()
+    finally:
+        await c2.aclose()
+    return None
+
+
 @app.get("/p")
 async def proxy(request: Request, u: str = "", t: str = "", e: str = ""):
     if e:
@@ -1063,12 +1177,18 @@ async def proxy(request: Request, u: str = "", t: str = "", e: str = ""):
     h = {"User-Agent": UA, "Referer": _ref["v"], "Origin": _ref["v"].rstrip("/"), "Accept": "*/*"}
     if request.headers.get("range"):
         h["Range"] = request.headers["range"]
-    c = httpx.AsyncClient(follow_redirects=True, timeout=30, **CK)
-    try:
-        r = await c.send(c.build_request("GET", u, headers=h), stream=True)
-    except Exception as e:
-        await c.aclose()
-        return Response("bad gateway", status_code=502, headers={"Cache-Control": "no-store"})
+    c = r = None
+    if HTTP_FIRST and u.lower().startswith("https://") and ".m3u8" not in u.split("?")[0].lower():
+        got = await _try_http(u, h)
+        if got:
+            c, r = got
+    if r is None:
+        c = httpx.AsyncClient(follow_redirects=True, timeout=30, **CK)
+        try:
+            r = await c.send(c.build_request("GET", u, headers=h), stream=True)
+        except Exception as e:
+            await c.aclose()
+            return Response("bad gateway", status_code=502, headers={"Cache-Control": "no-store"})
     ct = r.headers.get("content-type", "").lower()
     if "mpegurl" in ct or u.split("?")[0].endswith(".m3u8"):
         text = (await r.aread()).decode("utf-8", "ignore")

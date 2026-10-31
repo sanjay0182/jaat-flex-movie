@@ -1107,9 +1107,49 @@ addEventListener("hashchange",()=>{if(CAPP&&window.CapGame){CapGame.closeAll();C
 /* the video link. If the server wants the title page opened first, open it quietly and ask again.
    If it wants a captcha: solve it, then ask again (a stale pass token is dropped first). */
 function clog(o){try{fetch(BASE+"/api/clog",{method:"POST",headers:{"X-Device":DID,"Content-Type":"text/plain"},body:JSON.stringify(o),keepalive:true}).catch(()=>{})}catch(e){}}
-async function streamApi(id,slug,se,ep){const u="/api/stream/"+id+"?detail_path="+encodeURIComponent(slug)+"&se="+se+"&ep="+ep+(window.Hls&&Hls.isSupported()?"&hj=1":"");
+/* client-side resolve: THIS phone asks MovieBox for the token and the video links (faster, costs the server nothing); the server only signs the links
+   (/api/sign, same captcha / limits as /api/stream) and the Wispbyte relay carries the bytes. If anything fails (CORS, no token, no stream) the old
+   /api/stream path is used, and the client path is skipped for 30 min so the next play does not waste time. */
+const MBAPI="https://h5-api.aoneroom.com/wefeed-h5api-bff";
+const clientOff=()=>(+store.get("jf_noclient")||0)>Date.now();
+async function mbResolve(id,slug,se,ep){
+  let tz="Asia/Kolkata";try{tz=Intl.DateTimeFormat().resolvedOptions().timeZone||tz}catch(e){}
+  const H0={"X-Client-Info":JSON.stringify({timezone:tz})};
+  const r0=await fetch(MBAPI+"/home?host=moviebox.ph",{headers:H0});
+  let tok="";const xu=r0.headers.get("x-user");if(xu){try{tok=JSON.parse(xu).token||""}catch(e){}}
+  if(!tok)throw new Error("no token");
+  const H={...H0,Authorization:"Bearer "+tok,"X-Request-Lang":"en"};
+  const dj=await(await fetch(MBAPI+"/media-player/get-domain",{headers:H})).json();
+  const dom=((typeof dj.data==="string"?dj.data:"")||"https://netfilm.world").replace(/\/+$/,"");
+  const combos=[[se,ep]];if(ep===0)combos.push([1,1],[0,1]);if(se===0&&ep>0)combos.push([1,ep]);if(se>0)combos.push([0,ep]);
+  const q=(s,e)=>"?subjectId="+encodeURIComponent(id)+"&se="+s+"&ep="+e+"&detailPath="+encodeURIComponent(slug);
+  let pd=null,used=null;
+  for(const[s,e]of combos.slice(0,4)){
+    const j=await(await fetch(dom+"/wefeed-h5api-bff/subject/play"+q(s,e),{headers:H})).json();
+    if(j.data&&j.data.hasResource){pd=j.data;used=[s,e];break}}
+  if(!pd)throw new Error("no resource");
+  let items=[];
+  for(const x of pd.hls||[]){const u=typeof x==="string"?x:x&&x.url;if(u)items.push({u,res:9999,auto:1})}
+  for(const s of pd.streams||[])if(s.url)items.push({u:s.url,res:+s.resolutions||0});
+  try{  /* download links (bcdnw) replace the mp4 stream of the same quality: they are not tied to one ip */
+    const dl=await(await fetch(dom+"/wefeed-h5api-bff/subject/download"+q(used[0],used[1]),{headers:H})).json();
+    const dres=new Set(),ds=[];
+    for(const x of(dl.data&&dl.data.downloads)||[]){if(x&&x.url&&+x.resolution){dres.add(+x.resolution);ds.push({u:x.url,res:+x.resolution})}}
+    if(ds.length){items=items.filter(x=>x.auto||x.u.indexOf(".m3u8")>=0||!dres.has(x.res));items=items.concat(ds)}
+  }catch(e){}
+  const st=(pd.streams||pd.dash||[null])[0]||{};
+  return{items,cap:{id:st.id,fmt:st.format||"MP4"},dom}}
+async function streamApi(id,slug,se,ep){const hj=window.Hls&&Hls.isSupported()?1:0,u="/api/stream/"+id+"?detail_path="+encodeURIComponent(slug)+"&se="+se+"&ep="+ep+(hj?"&hj=1":"");
+  let useClient=!clientOff();
   for(let tries=0;;tries++){
-    try{return await api(u)}
+    try{
+      if(useClient){
+        let R=null;try{R=await mbResolve(id,slug,se,ep)}catch(e){R=null}
+        if(R&&R.items.length){
+          try{const j=await api("/api/sign",{id:String(id),detail_path:slug,se,ep,hj,items:R.items,cap:R.cap});if(j&&j.sources&&j.sources.length)return j}
+          catch(e){if(e.status===403||e.status===429)throw e}}
+        useClient=false;store.set("jf_noclient",String(Date.now()+30*60*1000))}
+      return await api(u)}
     catch(e){
       if(e.status===403&&e.open&&tries<2){try{await api("/detail/"+slug)}catch(_){}continue}
       if(e.status===403&&e.captcha&&tries<3){capForget();if(await solveCaptcha())continue;e.cancelled=true}
