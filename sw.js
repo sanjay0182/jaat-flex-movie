@@ -10,9 +10,9 @@
    Open-ended Range requests are cut into pieces of CHUNK bytes; the player simply asks for the next piece. */
 importScripts("/tlsdec.js");
 
-const CHUNK = 6 * 1024 * 1024;
+const CHUNK = 12 * 1024 * 1024;     /* bigger pieces = fewer new connections/handshakes on the relay */
 let fails = 0, offUntil = 0, seqNo = 0;
-const LOG = true;                                     /* false = no [sw] lines in the console */
+const LOG = false;                                     /* false = no [sw] lines in the console */
 const now = () => (self.performance && performance.now) ? performance.now() : Date.now();
 function log(id, msg) { if (LOG) try { console.log("[sw #" + id + "] " + msg); } catch (e) {} }
 
