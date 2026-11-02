@@ -1098,6 +1098,30 @@ body.reelson{overflow:hidden;overscroll-behavior:none}
   .nav{width:min(840px,calc(100% - 48px))}
   .nav button{font-size:16px}
 }
+
+/* ===== desktop hero v2: banner + text in ONE box (text sits on the banner, never over the tabs) ===== */
+@media(min-width:760px){
+html .hero.hero:not(.dh){--hh:clamp(380px,min(calc(100vh - 220px),46vw),700px);position:relative;display:block;height:auto!important;min-height:0;overflow:hidden;border-radius:26px;margin:10px 0 16px;background:var(--panel2)}
+html .hero.hero:not(.dh) .hban{position:relative;width:100%;height:var(--hh)!important;aspect-ratio:auto!important;max-height:none!important;border-radius:0;border:0;box-shadow:none}
+html .hero.hero:not(.dh) .hban::after{display:block;background:linear-gradient(90deg,rgba(6,9,16,.78) 0%,rgba(6,9,16,.25) 55%,transparent 100%)}
+html .hero.hero:not(.dh) .hin{position:absolute;left:0;right:0;bottom:0;z-index:3;padding:60px clamp(28px,4vw,64px) 30px;color:#fff;background:linear-gradient(0deg,rgba(6,9,16,.96) 0%,rgba(6,9,16,.72) 50%,transparent 100%)}
+html .hero.hero:not(.dh) .in2{max-width:640px}
+html .hero.hero:not(.dh) h1{color:#fff;text-shadow:0 2px 16px rgba(0,0,0,.6);font-size:clamp(34px,3.6vw,56px);margin:10px 0 8px;justify-content:flex-start;min-height:0}
+html .hero.hero:not(.dh) .hinfo{color:#e4e8f2;margin:0 0 10px}
+html .hero.hero:not(.dh) .hg span{color:#fff;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.24)}
+html .hero.hero:not(.dh) .hd{color:#e6e9f2;text-shadow:0 1px 8px rgba(0,0,0,.6)}
+html .hero.hero:not(.dh) .hmore{color:#fff}
+html .hero.hero:not(.dh) .row2{max-width:460px;margin-top:16px}
+html .hero.hero:not(.dh) .glass{background:rgba(255,255,255,.14);color:#fff;border:1.5px solid rgba(255,255,255,.3);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+html .hero.hero:not(.dh) .seg{margin:18px 0 0;justify-content:flex-start}
+html .hero.hero:not(.dh) .seg button{background:rgba(255,255,255,.35)}
+/* poster-type art goes to the right, wide art covers the whole banner */
+html .hero.hero:not(.dh):not(.land) .art{left:auto;right:clamp(28px,5vw,80px);top:50%;transform:translateY(-50%);height:74%;max-width:26%;width:auto;border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.6)}
+html .hero.hero:not(.dh):not(.land) .bg{filter:blur(28px) brightness(.6) saturate(1.2)!important;transform:scale(1.2)!important;opacity:1}
+html .hero.hero:not(.dh).land .bg{filter:none!important;transform:none!important;opacity:1}
+html .hero.hero:not(.dh) .tag{left:clamp(28px,4vw,64px);top:22px}
+html .hero.sk:not(.dh){height:var(--hh)!important;min-height:380px;background:var(--panel2)}
+}
 </style>
 </head>
 <body>
