@@ -1759,7 +1759,7 @@ async function watch(id,slug,se,ep){
     box.append(bar);const t=setInterval(()=>{n--;lb.textContent="Next episode in "+n+"s";if(n<=0){clearInterval(t);go(nUrl(next))}},1000);timers.push(t)};
   timers.push(setInterval(()=>{if(!video.paused&&video.currentTime>5)store.set(key,String(video.currentTime))},8000));
   timers.push(setInterval(()=>{if(!video.paused&&video.currentTime>5){saveProg();mark()}},10000));video.addEventListener("pause",()=>{if(!video.ended&&video.currentTime>5){saveProg();mark()}});
-  function play(i){cur=i;tried.add(i);if(hls){hls.destroy();hls=null}qSel=-1;msg.style.display="flex";msg.textContent="Loading…";
+  function play(i){const t0=video.currentTime;if(t0>10&&isFinite(t0))resume=t0;cur=i;tried.add(i);if(hls){hls.destroy();hls=null}qSel=-1;msg.style.display="flex";msg.textContent="Loading…";
     const x=src[i],hide=()=>{msg.style.display="none";buf.style.display="none"};
     const bad=t=>{msg.style.display="flex";msg.replaceChildren(h("div",{style:"font-size:12px;word-break:break-all;padding:0 8px;max-height:130px;overflow:auto"},t||"This stream failed to load.",h("div",{style:"margin-top:12px"},h("button",{class:"chip",onclick:()=>{tried.clear();play(cur)}},"↻ Retry"))))};
     const fb=()=>{let n=src.findIndex((s,j)=>!tried.has(j)&&s.backup&&!x.backup&&s.kind===x.kind&&s.res===x.res);if(n<0)n=src.findIndex((_,j)=>!tried.has(j));if(n<0)return false;msg.textContent="Trying another source…";play(n);return true};
