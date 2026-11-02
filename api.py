@@ -1034,7 +1034,8 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
         if _items:
             asyncio.create_task(_dbg_probe(_items))
     st = (pd.get("streams") or pd.get("dash") or [None])[0] or {}
-    cap = {"id": st.get("id"), "fmt": st.get("format") or "MP4"}
+    cap = {"id": st.get("id"), "fmt": st.get("format") or "MP4",
+           "ids": list(dict.fromkeys(str(x_.get("id")) for x_ in ((pd.get("streams") or []) + (pd.get("dash") or [])) if isinstance(x_, dict) and x_.get("id")))[:8]}
     why = None
     if not src:   # the real reason, shown in the player (urls / upstream host names are masked)
         def _m(x):
@@ -1107,7 +1108,8 @@ async def sign_links(request: Request):
             src.append({"kind": "hls" if m3 else "mp4", "label": "%sp" % res, "res": res, "url": _px(u, c, sess, bind=hj and m3)})
     src.sort(key=lambda y: -y["res"])
     cp = b.get("cap") if isinstance(b.get("cap"), dict) else {}
-    cap = {"id": (str(cp.get("id"))[:64] if cp.get("id") is not None else None), "fmt": str(cp.get("fmt") or "MP4")[:16]}
+    cap = {"id": (str(cp.get("id"))[:64] if cp.get("id") is not None else None), "fmt": str(cp.get("fmt") or "MP4")[:16],
+           "ids": [str(i)[:64] for i in (cp.get("ids") or [])[:8]] if isinstance(cp.get("ids"), list) else []}
     return {"has_resource": bool(src), "sources": src, "note": None if src else "No stream was found for this title.", "why": None, "cap": cap, "_domain": _ref["v"].rstrip("/")}
 
 
@@ -1215,15 +1217,30 @@ async def proxy(request: Request, u: str = "", t: str = "", e: str = ""):
 
 
 @app.get("/api/captions/{subject_id}")
-async def captions(request: Request, subject_id: str, detail_path: str, id: str = "", fmt: str = "MP4"):
+async def captions(request: Request, subject_id: str, detail_path: str, id: str = "", fmt: str = "MP4", ids: str = ""):
+    """ALL subtitle languages: the caption list is asked for every stream id of the title (each quality can carry a
+    different set) and merged; the same language is listed once."""
     c = protect.ctx(request)
-    if not id:
+    idl = list(dict.fromkeys([i for i in ([id] + ids.split(",")) if i.strip()]))[:8]
+    if not idl:
         return {"captions": []}
-    d = await call(f"{API}/subject/caption?format={fmt}&id={id}&subjectId={subject_id}&detailPath={detail_path}")
-    cd = d.get("data")
-    caps = (cd.get("captions") if isinstance(cd, dict) else cd) or []
-    return {"captions": [{"lang": cap.get("lanName") or cap.get("lan") or "Subtitle", "url": PUBLIC_BASE + protect.link(cap["url"], c, None, "s", "/sub")}
-                         for cap in caps if isinstance(cap, dict) and cap.get("url")]}
+    from urllib.parse import quote
+    res = await asyncio.gather(*[call(f"{API}/subject/caption?format={quote(fmt)}&id={quote(i)}&subjectId={quote(subject_id)}&detailPath={quote(detail_path)}") for i in idl])
+    out, seen = [], set()
+    for d in res:
+        cd = d.get("data") if isinstance(d, dict) else None
+        caps = (cd.get("captions") if isinstance(cd, dict) else cd) or []
+        for cap in caps:
+            if not (isinstance(cap, dict) and cap.get("url")):
+                continue
+            lang = cap.get("lanName") or cap.get("lan") or "Subtitle"
+            key = (str(cap.get("lan") or lang)).lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"lang": lang, "url": PUBLIC_BASE + protect.link(cap["url"], c, None, "s", "/sub")})
+    out.sort(key=lambda x: (x["lang"].lower() not in ("english", "hindi"), x["lang"]))
+    return {"captions": out}
 
 
 @app.get("/sub")

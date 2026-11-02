@@ -1144,7 +1144,8 @@ async function mbResolve(id,slug,se,ep){
     if(ds.length){items=items.filter(x=>x.auto||x.u.indexOf(".m3u8")>=0||!dres.has(x.res));items=items.concat(ds)}
   }catch(e){}
   const st=(pd.streams||pd.dash||[null])[0]||{};
-  return{items,cap:{id:st.id,fmt:st.format||"MP4"},dom}}
+  const ids=[...new Set([].concat(pd.streams||[],pd.dash||[]).map(x=>x&&x.id).filter(Boolean).map(String))].slice(0,8);
+  return{items,cap:{id:st.id,fmt:st.format||"MP4",ids},dom}}
 async function streamApi(id,slug,se,ep){const hj=window.Hls&&Hls.isSupported()?1:0,u="/api/stream/"+id+"?detail_path="+encodeURIComponent(slug)+"&se="+se+"&ep="+ep+(hj?"&hj=1":"");
   let useClient=!clientOff();
   for(let tries=0;;tries++){
@@ -1492,7 +1493,11 @@ async function getDet(slug){if(DET[slug])return DET[slug];const d=await api("/de
   const sh7=s.subjectType===7;   /* shorts are episodic mini-dramas: they need an episode list too */
   let seasons=(r.seasons||[]).filter(x=>sh7?x.se>=0:x.se>0).map(x=>({se:+x.se,n:+(x.maxEp||x.allEp||0)||12}));
   const series=s.subjectType===2||sh7||seasons.length>0;if(series&&!seasons.length)seasons=[{se:1,n:12}];
-  return DET[slug]={title:cleanName(s.title||slug),tags:tagsOf(s.title),poster:(s.cover&&s.cover.url)||"",desc:s.description||"",rating:s.imdbRatingValue,year:(s.releaseDate||"").slice(0,4),rel:s.releaseDate||"",real:(r.seasons||[]).length>0,genres:(s.genre||"").split(",").map(x=>x.trim()).filter(Boolean),series,short:sh7,seasons,dubs:((d.data&&d.data.dubs)||[]).filter(x=>x.subjectId&&x.detailPath).map(x=>({id:x.subjectId,slug:x.detailPath,lang:x.lanName||x.lanCode||"Dub"}))}}
+  return DET[slug]={title:cleanName(s.title||slug),tags:tagsOf(s.title),poster:(s.cover&&s.cover.url)||"",desc:s.description||"",rating:s.imdbRatingValue,year:(s.releaseDate||"").slice(0,4),rel:s.releaseDate||"",real:(r.seasons||[]).length>0,genres:(s.genre||"").split(",").map(x=>x.trim()).filter(Boolean),series,short:sh7,seasons,dubs:(()=>{const raw=[].concat((d.data&&d.data.dubs)||[],s.dubs||[],r.dubs||[]),seen=new Set(),o=[];
+    raw.forEach(x=>{if(!x||!x.subjectId||!x.detailPath||seen.has(String(x.subjectId)))return;seen.add(String(x.subjectId));o.push({id:x.subjectId,slug:x.detailPath,lang:x.lanName||x.lanCode||x.name||"Dub"})});
+    /* the API often lists only the OTHER dubs: add this title itself so the menu has every language */
+    if(o.length&&s.subjectId&&!seen.has(String(s.subjectId))){const m=(s.title||"").match(/\[([^\]]+)\]/);o.unshift({id:s.subjectId,slug:s.detailPath||slug,lang:m?m[1]:"Original"})}
+    return o})()}}
 function epGrid(seasons,curSe,curEp,pick,slug){const pp=slug?epProgAll(slug):{};let sh=curSe||seasons[0].se;const tabs=h("div",{class:"chips"}),grid=h("div",{class:"eps"});
   const paint=()=>{tabs.replaceChildren(...(seasons.length>1?seasons.map(s=>h("button",{class:"chip","aria-pressed":String(s.se===sh),onclick:()=>{sh=s.se;paint()}},"Season "+s.se)):[]));
     const n=(seasons.find(s=>s.se===sh)||{n:0}).n;grid.replaceChildren(...Array.from({length:n},(_,k)=>h("button",{"data-k":sh+":"+(k+1),class:"ep"+(sh===curSe&&k+1===curEp?" cur":"")+(SEENSET.has(sh+":"+(k+1))?" seen":""),onclick:()=>pick(sh,k+1)},h("span",{class:"en2"},String(k+1)),h("span",{class:"epm"},h("i")),h("small",{class:"epp"}))));
@@ -1730,6 +1735,7 @@ async function watch(id,slug,se,ep){
     if(q)r.push({label:"Quality",val:qSel<0?"Auto":(hls.levels[qSel]||{}).height+"p",opts:[{t:"Auto",on:qSel<0,f:()=>{qSel=-1;hls.currentLevel=-1}},...hls.levels.map((l,k)=>({l,k})).sort((a,b)=>b.l.height-a.l.height).map(({l,k})=>({t:l.height+"p",on:qSel===k,f:()=>{qSel=k;hls.currentLevel=k}}))]});
     if(src.length>1)r.push({label:"Source",val:src[cur].label,opts:src.map((y,j)=>({t:y.label,on:j===cur,f:()=>{tried.clear();play(j)}}))});
     if(hls&&hls.audioTracks&&hls.audioTracks.length>1)r.push({label:"Audio track",val:(hls.audioTracks[hls.audioTrack]||{}).name||"",opts:hls.audioTracks.map((t,k)=>({t:t.name||t.lang||"Track "+(k+1),on:hls.audioTrack===k,f:()=>{hls.audioTrack=k}}))});
+    else{const na=video.audioTracks;if(na&&na.length>1){const L=[...na];r.push({label:"Audio track",val:(L.find(t=>t.enabled)||{}).label||(L.find(t=>t.enabled)||{}).language||"",opts:L.map((t,k)=>({t:t.label||t.language||"Track "+(k+1),on:!!t.enabled,f:()=>{L.forEach((x,j)=>x.enabled=j===k)}}))})}}
     if(d.dubs.length>1)r.push({label:"Language",val:(d.dubs.find(x=>String(x.id)===String(id))||{}).lang||"",opts:d.dubs.map(x=>({t:x.lang,on:String(x.id)===String(id),f:()=>{if(String(x.id)!==String(id))go("#/watch/"+x.id+"/"+x.slug+"/"+se+"/"+ep)}}))});
     if(caps.length)r.push({label:"Subtitles",val:subIdx<0?"Off":(caps[subIdx]||{}).lang,opts:[{t:"Off",on:subIdx<0,f:()=>setSub(-1)},...caps.map((c,k)=>({t:c.lang,on:subIdx===k,f:()=>setSub(k)}))]});
     else r.push({label:"Subtitles",val:"Not available",opts:[]});
@@ -1738,7 +1744,7 @@ async function watch(id,slug,se,ep){
     if(d.series)r.push({label:"Autoplay next",tog:{on:auto.checked,f:()=>{auto.checked=!auto.checked;store.set("auto",auto.checked?"1":"0")}}});
     return r};
   playerUI(box,video,{show:d.title,sub:()=>title,hasPrev:()=>!!prevBtn,prev:()=>prevBtn&&prevBtn.click(),hasNext:()=>!!next,next:()=>next&&go(nUrl(next)),vids:()=>allVids,sn:se,en:ep,slug,rows,skipCands:()=>[],autoNext:()=>auto.checked,epUrl:(s2,e2)=>nUrl([s2,e2])});
-  api("/api/captions/"+id+"?detail_path="+encodeURIComponent(slug)+"&id="+encodeURIComponent((data.cap&&data.cap.id)||"")+"&fmt="+((data.cap&&data.cap.fmt)||"MP4")).then(j=>{if(!mine())return;caps=j.captions||[];
+  api("/api/captions/"+id+"?detail_path="+encodeURIComponent(slug)+"&id="+encodeURIComponent((data.cap&&data.cap.id)||"")+"&fmt="+((data.cap&&data.cap.fmt)||"MP4")+"&ids="+encodeURIComponent(((data.cap&&data.cap.ids)||[]).join(","))).then(j=>{if(!mine())return;caps=j.captions||[];
     caps.forEach(c=>video.append(h("track",{kind:"subtitles",label:c.lang,src:c.url})));
     const k=caps.findIndex(c=>c.lang===store.get("sub"));if(k>=0)setTimeout(()=>setSub(k),300)}).catch(()=>{});
   play(0)}
