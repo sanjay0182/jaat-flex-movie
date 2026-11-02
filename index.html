@@ -1063,6 +1063,11 @@ body.reelson{overflow:hidden;overscroll-behavior:none}
 .rl-flash.on{animation:rlflash .6s ease-out}@keyframes rlflash{0%{opacity:0;transform:scale(.7)}25%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1.15)}}
 .rl-err{position:absolute;left:0;right:0;top:50%;text-align:center;font-weight:700;font-size:14px;padding:0 24px;pointer-events:none}
 @media(orientation:landscape) and (max-height:520px){.rl-cap{bottom:calc(26px + env(safe-area-inset-bottom))}.rl-cap b{font-size:15px;-webkit-line-clamp:1}.rl-side .rl-ic{width:40px;height:40px}.rl-sides{gap:8px}}
+/* fix: while scrolling the watch page, keep the player (and its controls) pinned just under the header instead of sliding beneath it */
+@media not all and (orientation:landscape) and (max-height:520px){
+  html:not(.tv) .player:not(.tall):not(.fs):not(.ls){position:sticky;top:var(--hh,62px);z-index:4;box-shadow:0 0 0 16px var(--bg)}
+  html:not(.tv) .player:not(.tall):not(.fs):not(.ls)+.nextbar{margin-top:20px}
+}
 </style>
 </head>
 <body>
@@ -1079,6 +1084,7 @@ body.reelson{overflow:hidden;overscroll-behavior:none}
 "use strict";
 const BASE=window.API_BASE||"",LITE=document.documentElement.classList.contains("lite");
 const $app=document.getElementById("app"),$nav=document.getElementById("nav");
+(()=>{const hd=document.querySelector("header");if(!hd)return;const set=()=>document.documentElement.style.setProperty("--hh",hd.offsetHeight+"px");set();try{new ResizeObserver(set).observe(hd)}catch(e){addEventListener("resize",set)}})();
 const store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}},del:k=>{try{localStorage.removeItem(k)}catch(e){}}};
 /* device id: a random id this browser keeps; the server counts rates / guest videos per device as well as per IP */
 const DID=(()=>{let d=store.get("jf_did");if(!d||!/^[A-Za-z0-9_-]{8,40}$/.test(d)){const a="abcdefghijklmnopqrstuvwxyz0123456789";d="";try{const u=new Uint8Array(20);crypto.getRandomValues(u);for(const x of u)d+=a[x%36]}catch(e){for(let i=0;i<20;i++)d+=a[Math.random()*36|0]}store.set("jf_did",d)}return d})();
@@ -1222,6 +1228,9 @@ const hasMore=s=>{const m=s.more||{};return!!(m.query||m.genreTopId||m.rankingId
 const SECT={};
 const COMINGRE=/coming|upcoming|soon/i;
 const COMING=new Set((()=>{try{return JSON.parse(store.get("jf_coming")||"[]")}catch(e){return[]}})());
+const unmarkComing=slug=>{if(COMING.delete(slug)){try{store.set("jf_coming",JSON.stringify([...COMING].slice(-400)))}catch(e){}}};
+/* a title is only "coming soon" while its release date is still in the future; once it is out (or its episode list exists) the old flag is dropped */
+const isSoon=(slug,d)=>{if(!COMING.has(slug))return false;const t=Date.parse((d&&d.rel)||"");if(!isNaN(t)){if(t<=Date.now()){unmarkComing(slug);return false}return true}if(d&&d.series&&d.real){unmarkComing(slug);return false}return true};
 const markComing=items=>{let n=COMING.size;(items||[]).forEach(i=>i&&i.slug&&COMING.add(i.slug));if(COMING.size!==n){try{store.set("jf_coming",JSON.stringify([...COMING].slice(-400)))}catch(e){}}};
 function browsePage(pre){
   const st={tab:"2",classify:"All",country:"All",genre:"All",year:"All",sort:"ForYou"};if(pre==="tv")st.tab="5";if(pre==="anime")st.tab="8";
@@ -1365,13 +1374,21 @@ async function home(){
     return[h("h2",{class:"sec"},"Continue watching"),rw]};
   if(cont.length)frag.splice(cutAt,0,...mkCont(cont));
   if(CAT==="all"||TK){rest.forEach(s=>frag.push(...(s.kind==="filter"?filterBlock(s):secBlock(s))))}
-  else{const seen=new Set();let n=0;const lb=(CATS.find(c=>c[0]===CAT)||[])[1]||"";
+  else{const seen=new Set(),mixed=[];let n=0,more=null;const isS=CAT==="short",lb=(CATS.find(c=>c[0]===CAT)||[])[1]||"";
+    /* open the section's full list (same "See all" as the Home page uses) */
+    const seeAll=s=>{SEC[s.section]=s.items;SECT[s.section]=s.tabs||[];MIDALLT="";go("#/all/"+encodeURIComponent(JSON.stringify(moreOf(s))))};
     rest.forEach(s=>{if(s.kind==="filter")return;
-      const its=s.items.filter(i=>kindOf(i,s.section)===CAT&&!seen.has(i.slug));
-      if(its.length<3)return;its.forEach(i=>seen.add(i.slug));n++;
-      frag.push(h("h2",{class:"sec"},cleanT(s.section)),railBox(its.slice(0,20)))});
+      const its=s.items.filter(i=>kindOf(i,s.section)===CAT&&!seen.has(i.slug)),pure=its.length>0&&its.length===s.items.length;
+      /* shorts hiding inside mixed rows are collected into one "More shorts" rail instead of many tiny rows */
+      if(isS&&!pure&&!/short/i.test(s.section||"")){its.forEach(i=>{if(!mixed.some(m=>m.slug===i.slug))mixed.push(i)});return}
+      if(its.length<(isS?1:3))return;its.forEach(i=>seen.add(i.slug));n++;
+      const sa=pure&&hasMore(s);if(sa&&!more)more=s;
+      frag.push(h("h2",{class:"sec"},h("span",{class:"st"},cleanT(s.section)),sa?h("button",{class:"see",onclick:()=>seeAll(s)},"See all \u2192"):null),railBox(its.slice(0,20)))});
+    const ml=mixed.filter(i=>!seen.has(i.slug));if(ml.length){n++;frag.push(h("h2",{class:"sec"},"More "+lb.toLowerCase()),railBox(ml.slice(0,30)))}
     if(!n)frag.push(h("div",{class:"state"},"Nothing in this category on the home feed right now."));
-    frag.push(h("button",{class:"pri",style:"width:100%;margin:18px 0",onclick:()=>go("#/browse/"+CAT)},"Browse all "+lb+" ›"))}
+    /* Shorts have no filter page (it only knows Movies / Series / Anime), so that button opens the full list of the shorts row instead */
+    if(!isS)frag.push(h("button",{class:"pri",style:"width:100%;margin:18px 0",onclick:()=>go("#/browse/"+CAT)},"Browse all "+lb+" ›"));
+    else if(more)frag.push(h("button",{class:"pri",style:"width:100%;margin:18px 0",onclick:()=>seeAll(more)},"See all "+lb+" ›"))}
   if(!frag.length)frag.push(h("div",{class:"state"},"Nothing found."));
   $app.replaceChildren(...frag);
   if(meLate)meReady.then(()=>{if(!ME||!catEl.isConnected)return;const c=PROG.filter(p=>p.slug&&p.sid&&notMid(p));if(c.length)catEl.after(...mkCont(c))})}
@@ -1475,7 +1492,7 @@ async function getDet(slug){if(DET[slug])return DET[slug];const d=await api("/de
   const sh7=s.subjectType===7;   /* shorts are episodic mini-dramas: they need an episode list too */
   let seasons=(r.seasons||[]).filter(x=>sh7?x.se>=0:x.se>0).map(x=>({se:+x.se,n:+(x.maxEp||x.allEp||0)||12}));
   const series=s.subjectType===2||sh7||seasons.length>0;if(series&&!seasons.length)seasons=[{se:1,n:12}];
-  return DET[slug]={title:cleanName(s.title||slug),tags:tagsOf(s.title),poster:(s.cover&&s.cover.url)||"",desc:s.description||"",rating:s.imdbRatingValue,year:(s.releaseDate||"").slice(0,4),genres:(s.genre||"").split(",").map(x=>x.trim()).filter(Boolean),series,short:sh7,seasons,dubs:((d.data&&d.data.dubs)||[]).filter(x=>x.subjectId&&x.detailPath).map(x=>({id:x.subjectId,slug:x.detailPath,lang:x.lanName||x.lanCode||"Dub"}))}}
+  return DET[slug]={title:cleanName(s.title||slug),tags:tagsOf(s.title),poster:(s.cover&&s.cover.url)||"",desc:s.description||"",rating:s.imdbRatingValue,year:(s.releaseDate||"").slice(0,4),rel:s.releaseDate||"",real:(r.seasons||[]).length>0,genres:(s.genre||"").split(",").map(x=>x.trim()).filter(Boolean),series,short:sh7,seasons,dubs:((d.data&&d.data.dubs)||[]).filter(x=>x.subjectId&&x.detailPath).map(x=>({id:x.subjectId,slug:x.detailPath,lang:x.lanName||x.lanCode||"Dub"}))}}
 function epGrid(seasons,curSe,curEp,pick,slug){const pp=slug?epProgAll(slug):{};let sh=curSe||seasons[0].se;const tabs=h("div",{class:"chips"}),grid=h("div",{class:"eps"});
   const paint=()=>{tabs.replaceChildren(...(seasons.length>1?seasons.map(s=>h("button",{class:"chip","aria-pressed":String(s.se===sh),onclick:()=>{sh=s.se;paint()}},"Season "+s.se)):[]));
     const n=(seasons.find(s=>s.se===sh)||{n:0}).n;grid.replaceChildren(...Array.from({length:n},(_,k)=>h("button",{"data-k":sh+":"+(k+1),class:"ep"+(sh===curSe&&k+1===curEp?" cur":"")+(SEENSET.has(sh+":"+(k+1))?" seen":""),onclick:()=>pick(sh,k+1)},h("span",{class:"en2"},String(k+1)),h("span",{class:"epm"},h("i")),h("small",{class:"epp"}))));
@@ -1485,7 +1502,7 @@ async function show(slug,id){
   $app.replaceChildren(h("div",{class:"hero sk"}));let d;
   try{d=await getDet(slug)}catch(e){$app.replaceChildren(h("div",{class:"state"},"Unable to load details."));return}
   await meReady;const last=PROG.find(p=>String(p.sid)===String(id));loadSeen(id);
-  const soon=COMING.has(slug);
+  const soon=isSoon(slug,d);
   const play=(se,ep)=>go("#/watch/"+id+"/"+slug+"/"+se+"/"+ep),first=d.series?d.seasons[0]:{se:0};
   const inList=()=>favs.some(f=>f.slug===slug),item={slug,subject_id:id,name:d.title,poster_url:d.poster,rating:d.rating};
   const favTxt=()=>inList()?"\u2713 In My List":"+ My List";
