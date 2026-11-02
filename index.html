@@ -1068,6 +1068,36 @@ body.reelson{overflow:hidden;overscroll-behavior:none}
   html:not(.tv) .player:not(.tall):not(.fs):not(.ls){position:sticky;top:var(--hh,62px);z-index:4;box-shadow:0 0 0 16px var(--bg)}
   html:not(.tv) .player:not(.tall):not(.fs):not(.ls)+.nextbar{margin-top:20px}
 }
+/* ===== desktop fix: big hero banner, bigger tabs / bottom buttons, big video player ===== */
+@media(min-width:760px){
+  /* banner always takes the full width (aspect-ratio + max-height used to make it shrink to a small box) */
+  .hero:not(.dh) .hban{width:100%;aspect-ratio:21/9;max-height:min(70vh,640px)}
+}
+@media(min-width:900px){
+  /* category tabs under the banner */
+  .cats{gap:12px;padding-top:8px;padding-bottom:14px}
+  .cat{font-size:16px;padding:10px 24px}
+  .cats.sub .cat{font-size:14px;padding:8px 18px}
+  .toptabs{gap:10px}
+  .toptabs .cat{font-size:19px;padding:8px 18px}
+  .toptabs .cat.on{font-size:26px;padding-top:5px}
+  .toptabs .cat.brw{font-size:15px;padding:9px 20px;margin-left:10px}
+  /* floating bottom bar (Home / My List / Account) */
+  .nav{width:min(760px,calc(100% - 48px));padding:10px 14px;bottom:18px;border-radius:28px}
+  .nav button{font-size:15px;gap:5px;padding:10px 0;flex-direction:row;justify-content:center;gap:10px}
+  .nav button svg{width:28px;height:28px}
+  /* video player: as big as the screen allows (16:9, never taller than the window) */
+  #app{--pw:clamp(640px,calc((100vh - 150px)*16/9),1500px)}
+  #app>.back,#app>h2:not(.sec),.player,.nextbar,.cbar,.panel.slim,.epbox{max-width:var(--pw)}
+  .player:not(.tall){width:100%}
+}
+@media(min-width:1500px){
+  .cat{font-size:17px;padding:11px 26px}
+  .toptabs .cat{font-size:21px}
+  .toptabs .cat.on{font-size:29px}
+  .nav{width:min(840px,calc(100% - 48px))}
+  .nav button{font-size:16px}
+}
 </style>
 </head>
 <body>
