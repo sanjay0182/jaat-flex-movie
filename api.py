@@ -15,11 +15,58 @@ import captcha
 import protect
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 
 app = FastAPI(title="JaatFlix API", version="3.0")
 app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()], allow_methods=["*"], allow_headers=["*", "X-Device", "X-VIP-Key", "X-Captcha", "X-Admin-Key"])
 protect.start()
+
+# ---- byte counter (read-only, changes nothing for visitors): how many bytes THIS server sent, per route group ----
+# A log line "[BW] ..." is printed every 25 MB.  GET /api/bw?key=<ADMIN_KEY> shows the same.  Counters start again when the instance sleeps / redeploys.
+_BWC = {}
+_BWN = [0, 25 * 1048576]      # total bytes sent, next log line at
+
+
+def _bw_group(p):
+    s_ = [x for x in p.split("/") if x]
+    if not s_:
+        return "/"
+    if s_[0] == "api" and len(s_) > 1:
+        return "/api/" + s_[1]
+    return "/" + s_[0]
+
+
+class _BW:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            return await self.app(scope, receive, send)
+        try:
+            g = _bw_group(scope.get("path") or "/")
+        except Exception:
+            g = "?"
+
+        async def snd(msg):
+            if msg.get("type") == "http.response.body":
+                try:
+                    n = len(msg.get("body") or b"")
+                    if n:
+                        _BWC[g] = _BWC.get(g, 0) + n
+                        _BWN[0] += n
+                        if _BWN[0] >= _BWN[1]:
+                            _BWN[1] = _BWN[0] + 25 * 1048576
+                            top = sorted(_BWC.items(), key=lambda kv: -kv[1])[:6]
+                            print("[BW] %.0fMB sent since start: %s" % (_BWN[0] / 1048576.0, ", ".join("%s=%.1fMB" % (k, v / 1048576.0) for k, v in top)), flush=True)
+                except Exception:
+                    pass
+            await send(msg)
+
+        await self.app(scope, receive, snd)
+
+
+app.add_middleware(_BW)
 
 # ---- direct mode: the browser loads pictures / video straight from the CDN, this server only does the small JSON work ----
 PUBLIC_BASE = os.getenv("PUBLIC_BASE", "").rstrip("/")      # https://your-app.onrender.com (needed when the page is hosted on Firebase)
@@ -116,6 +163,15 @@ def _is_admin(request):
     k = request.headers.get("x-admin-key") or request.query_params.get("key") or ""
     ak = os.getenv("ADMIN_KEY", "")
     return bool(ak) and hmac.compare_digest(k.encode(), ak.encode())
+
+
+@app.get("/api/bw")
+async def bw_stats(request: Request):
+    if not _is_admin(request):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return {"total_mb": round(_BWN[0] / 1048576.0, 2),
+            "by_route_mb": {k: round(v / 1048576.0, 2) for k, v in sorted(_BWC.items(), key=lambda kv: -kv[1])},
+            "note": "bytes this server sent since the instance started (resets when it sleeps or redeploys)"}
 
 
 _IMGC = {}   # tiny in-memory picture cache: url -> (time, bytes, content-type)
@@ -1344,6 +1400,8 @@ async def _dl_hls(u, name, check, done=None):
 
 @app.get("/dl")
 async def download(request: Request, u: str = "", name: str = "video", check: int = 0, t: str = "", e: str = ""):
+    if os.getenv("DL_OFF", "0") == "1":     # DL_OFF=1 (Render env) = downloads switched off, no video bytes leave this server through /dl
+        return JSONResponse({"ok": False, "error": "Download is turned off."}, status_code=403)
     if e:
         u = protect.dec(e)
     if not u.startswith("http"):
@@ -1353,6 +1411,16 @@ async def download(request: Request, u: str = "", name: str = "video", check: in
         ok, why = protect.verify(pc, u, t, "d")
         if not ok or not protect.safe_url(u):
             return JSONResponse({"ok": False, "error": "This download link has expired. Please press Download again."}, status_code=403)
+    # DOWNLOAD VIA THE RELAY: the real file is carried by the Wispbyte relay, not by this server (this server only answers a redirect).
+    # The "check=1" call above stays here (it reads only the CDN answer head, no video bytes).  DL_VIA_WORKER=0 = old way (file through this server).
+    # Playlists (.m3u8) still go the old way.  Needs VIDEO_WORKER, and the relay files with the "dn" (file name) change.
+    if (not check and os.getenv("DL_VIA_WORKER", "1") != "0" and _worker_bases()
+            and ".m3u8" not in u.split("?")[0].lower() and protect.safe_url(u)):
+        try:
+            return RedirectResponse(_px(u, pc, None, bind=False) + "&dn=" + quote(_fname(name, ".mp4"), safe=""), status_code=302,
+                                    headers={"Cache-Control": "no-store"})
+        except Exception:
+            pass
     did = None
     if not check:
         did, n = protect.dl_begin(pc["ip"])
@@ -1406,6 +1474,8 @@ async def download(request: Request, u: str = "", name: str = "video", check: in
 @app.post("/api/dltok")
 async def api_dltok(request: Request):
     """Download ticket: only for a signed-in user, only for a url this page was given (its stream link proves that)."""
+    if os.getenv("DL_OFF", "0") == "1":
+        return JSONResponse({"error": "Download is turned off."}, status_code=403)
     b = await _body(request)
     u, t = str(b.get("u", "")), str(b.get("t", ""))
     if u and not u.startswith("http"):      # the page sends the opaque e= text of its stream link
