@@ -1768,7 +1768,7 @@ async function watch(id,slug,se,ep){
   /* AUDIO FIX: some dubs have the voices on the 5.1 centre channel (or on a separate audio track) and then only the music/effects are heard.
      VB = "Voice boost": Web Audio adds the centre channel on top of the normal stereo downmix. Only used for hls.js (blob source, no CORS limit);
      a cross-origin mp4 would go silent once routed through Web Audio. */
-  let AF=null;
+  let AF=null,vbWhy="";   /* vbWhy = why the audio mixer is not active on an MP4 (shown in the settings menu) */
   /* audio mode (key "vbm"): "2" = default, all 6 channels mixed by hand; "1" = centre voice added on top of the stereo downmix; "0" = browser downmix only. Works for HLS and for MP4 (MP4 only when the CORS probe passes) */
   const VB_MODE=()=>{const v=store.get("vbm");return v==="0"||v==="1"?v:"2"};
   const VB_ON=()=>VB_MODE()!=="0";
@@ -1822,10 +1822,10 @@ async function watch(id,slug,se,ep){
     else{const run=()=>{video.src=x.url;video.play().catch(hide)},AC=window.AudioContext||window.webkitAudioContext;
       /* MP4: Web Audio needs a CORS-readable source. Probe first; only when it passes is the audio mixer used, otherwise the video plays exactly as before. */
       if(AC&&x.kind!=="hls"&&x.url&&(VB_ON()||AF)){
-        fetch(x.url,{headers:{Range:"bytes=0-1"},signal:(()=>{try{const ac=new AbortController();setTimeout(()=>ac.abort(),8000);return ac.signal}catch(e){return undefined}})()}).then(r=>{if(!(r.status===200||r.status===206))throw new Error("status "+r.status);try{r.body&&r.body.cancel()}catch(e){}
+        fetch(x.url,{headers:{Range:"bytes=0-1"},signal:(()=>{try{const ac=new AbortController();setTimeout(()=>ac.abort(),30000);return ac.signal}catch(e){return undefined}})()}).then(r=>{if(!(r.status===200||r.status===206))throw new Error("status "+r.status);try{r.body&&r.body.cancel()}catch(e){}
           if(cur!==i)return;video.crossOrigin="anonymous";if(vbInit())vbApply();run()})
-        .catch(e=>{if(cur!==i)return;clog({type:"mp4-cors-probe-failed",err:String(e&&e.message)});if(AF){location.reload();return}video.removeAttribute("crossorigin");run()})}
-      else run()}}
+        .catch(e=>{if(cur!==i)return;vbWhy=String((e&&e.message)||e).slice(0,60);clog({type:"mp4-cors-probe-failed",err:String(e&&e.message)});if(AF){location.reload();return}video.removeAttribute("crossorigin");run()})}
+      else{vbWhy=!AC?"no Web Audio in this browser":"mode is Normal";run()}}}
   /* settings menu (gear in the player): speed, quality, source, audio, language, subtitles, screen, picture, autoplay */
   const rows=()=>{const r=[],q=hls&&hls.levels&&hls.levels.length>1;
     r.push({label:"Playback speed",val:video.playbackRate+"×",opts:[0.5,0.75,1,1.25,1.5,2].map(v=>({t:v+"×",on:video.playbackRate===v,f:()=>{video.playbackRate=v}}))});
@@ -1833,7 +1833,7 @@ async function watch(id,slug,se,ep){
     if(src.length>1)r.push({label:"Source",val:src[cur].label,opts:src.map((y,j)=>({t:y.label,on:j===cur,f:()=>{tried.clear();play(j)}}))});
     if(hls&&hls.audioTracks&&hls.audioTracks.length>1)r.push({label:"Audio track",val:(hls.audioTracks[hls.audioTrack]||{}).name||"",opts:hls.audioTracks.map((t,k)=>({t:t.name||t.lang||"Track "+(k+1),on:hls.audioTrack===k,f:()=>{hls.audioTrack=k}}))});
     else{const na=video.audioTracks;if(na&&na.length>1){const L=[...na];r.push({label:"Audio track",val:(L.find(t=>t.enabled)||{}).label||(L.find(t=>t.enabled)||{}).language||"",opts:L.map((t,k)=>({t:t.label||t.language||"Track "+(k+1),on:!!t.enabled,f:()=>{L.forEach((x,j)=>x.enabled=j===k)}}))})}}
-    if((src[cur]&&src[cur].kind==="hls"&&hls)||AF)r.push({label:"Audio mode (if voices are missing)",val:{"0":"Normal","1":"Voice boost","2":"All channels"}[VB_MODE()],opts:[["1","Voice boost (default)"],["2","All channels mix"],["0","Normal"]].map(([v,t])=>({t,on:VB_MODE()===v,f:()=>{store.set("vbm",v);if(!vbInit())return;vbApply()}}))});
+    if((src[cur]&&src[cur].kind==="hls"&&hls)||AF||(src[cur]&&src[cur].kind==="mp4"))r.push({label:"Audio mode (if voices are missing)",val:(!AF&&(src[cur]||{}).kind!=="hls")?"Not active ("+(vbWhy||"checking")+")":{"0":"Normal","1":"Voice boost","2":"All channels"}[VB_MODE()],opts:[["1","Voice boost (default)"],["2","All channels mix"],["0","Normal"]].map(([v,t])=>({t,on:VB_MODE()===v,f:()=>{store.set("vbm",v);if(AF){vbApply();return}if((src[cur]||{}).kind==="hls"){if(vbInit())vbApply();return}tried.clear();play(cur)}}))});
     if(AF)r.push({label:"Audio levels (peak %)",val:["L","R","C","LFE","Ls","Rs"].map((n,k)=>n+" "+Math.round(AF.pk[k]*100)).join("  "),opts:[]});
     if(d.dubs.length>1)r.push({label:"Language",val:(d.dubs.find(x=>String(x.id)===String(id))||{}).lang||"",opts:d.dubs.map(x=>({t:x.lang,on:String(x.id)===String(id),f:()=>{if(String(x.id)!==String(id))go("#/watch/"+x.id+"/"+x.slug+"/"+se+"/"+ep)}}))});
     if(caps.length)r.push({label:"Subtitles",val:subIdx<0?"Off":(caps[subIdx]||{}).lang,opts:[{t:"Off",on:subIdx<0,f:()=>setSub(-1)},...caps.map((c,k)=>({t:c.lang,on:subIdx===k,f:()=>setSub(k)}))]});
