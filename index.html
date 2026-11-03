@@ -1768,20 +1768,35 @@ async function watch(id,slug,se,ep){
   /* AUDIO FIX: some dubs have the voices on the 5.1 centre channel (or on a separate audio track) and then only the music/effects are heard.
      VB = "Voice boost": Web Audio adds the centre channel on top of the normal stereo downmix. Only used for hls.js (blob source, no CORS limit);
      a cross-origin mp4 would go silent once routed through Web Audio. */
-  let AF=null;const VB_ON=()=>store.get("vb")!=="0";   /* default ON: the voice (centre channel) is added unless the viewer switched it off */
-  function vbApply(){if(!AF)return;AF.cg.gain.value=VB_ON()?1.6:0;try{AF.ctx.resume()}catch(e){}}
+  let AF=null;
+  /* audio mode (key "vbm"): "1" = default, centre voice added on top of the stereo downmix; "2" = all 6 channels mixed by hand; "0" = browser downmix only */
+  const VB_MODE=()=>{const v=store.get("vbm");return v==="0"||v==="2"?v:"1"};
+  const VB_ON=()=>VB_MODE()!=="0";
+  function vbApply(){if(!AF)return;const m=VB_MODE();AF.cg.gain.value=m==="1"?1.6:0;AF.bg.gain.value=m==="2"?0:1;AF.ag.gain.value=m==="2"?1:0;try{AF.ctx.resume()}catch(e){}}
   function vbInit(){if(AF)return true;try{const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return false;
     const ctx=new AC(),s=ctx.createMediaElementSource(video),base=ctx.createGain();
     base.channelCount=2;base.channelCountMode="explicit";base.channelInterpretation="speakers";
-    const sp=ctx.createChannelSplitter(6),cg=ctx.createGain(),mg=ctx.createChannelMerger(2);cg.gain.value=0;
+    const sp=ctx.createChannelSplitter(8),cg=ctx.createGain(),mg=ctx.createChannelMerger(2),ag=ctx.createGain(),ma=ctx.createChannelMerger(2);cg.gain.value=0;ag.gain.value=0;
     s.connect(base);base.connect(ctx.destination);s.connect(sp);sp.connect(cg,2);cg.connect(mg,0,0);cg.connect(mg,0,1);mg.connect(ctx.destination);
-    AF={ctx,cg};return true}catch(e){clog({type:"vb-fail",err:String(e&&e.message)});return false}}
+    /* all-channels mix: L R C LFE Ls Rs (Lrs Rrs) -> stereo, nothing dropped */
+    [[1,0],[0,1],[.9,.9],[.5,.5],[.8,0],[0,.8],[.8,0],[0,.8]].forEach((w,i)=>{[0,1].forEach(o=>{if(!w[o])return;const g=ctx.createGain();g.gain.value=w[o];sp.connect(g,i);g.connect(ma,0,o)})});
+    ma.connect(ag);ag.connect(ctx.destination);
+    /* level meters: peak of every channel (shown in the settings menu, sent once to the server log) */
+    const an=[],pk=[0,0,0,0,0,0],fb=new Float32Array(512);let ticks=0;
+    for(let i=0;i<6;i++){const a=ctx.createAnalyser();a.fftSize=512;sp.connect(a,i);an.push(a)}
+    timers.push(setInterval(()=>{if(video.paused)return;an.forEach((a,i)=>{a.getFloatTimeDomainData(fb);let m=0;for(let k=0;k<fb.length;k++){const v=Math.abs(fb[k]);if(v>m)m=v}if(m>pk[i])pk[i]=m});
+      if(++ticks===75)clog({type:"audio-ch",peaks:pk.map(v=>Math.round(v*100)),mode:VB_MODE(),track:hls&&hls.audioTrack,ntracks:hls&&hls.audioTracks&&hls.audioTracks.length})},200));
+    AF={ctx,cg,bg:base,ag,pk};return true}catch(e){clog({type:"vb-fail",err:String(e&&e.message)});return false}}
   const pickAudio=()=>{if(!hls||!hls.audioTracks||hls.audioTracks.length<2)return;
-    const L=hls.audioTracks.map(t=>(t.name||"")+" "+(t.lang||""));clog({type:"audio-tracks",cur:hls.audioTrack,tracks:L.slice(0,8),src:(x_=>x_&&x_.label)(src[cur])});
+    const L=hls.audioTracks.map(t=>(t.name||"")+" "+(t.lang||"")+" "+(t.groupId||""));clog({type:"audio-tracks",cur:hls.audioTrack,tracks:L.slice(0,8),src:(x_=>x_&&x_.label)(src[cur])});
     const dl=((d.dubs||[]).find(x=>String(x.id)===String(id))||{}).lang||"";
-    if(/hindi/i.test(dl)){const k=L.findIndex(t=>/hindi|\bhi\b|\bhin\b/i.test(t));if(k>=0&&k!==hls.audioTrack)hls.audioTrack=k}};
+    const ME=s=>/m\s*&\s*e|effects|music|bgm|instrumental|background|karaoke/i.test(s);   /* music+effects-only tracks have no voices */
+    let k=-1;
+    if(/hindi/i.test(dl))k=L.findIndex(t=>/hindi|\bhi\b|\bhin\b/i.test(t)&&!ME(t));
+    if(k<0&&ME(L[hls.audioTrack]||""))k=L.findIndex(t=>!ME(t));
+    if(k>=0&&k!==hls.audioTrack)hls.audioTrack=k};
   function play(i){const t0=video.currentTime;if(t0>10&&isFinite(t0))resume=t0;cur=i;tried.add(i);if(hls){hls.destroy();hls=null}qSel=-1;msg.style.display="flex";msg.textContent="Loading…";
-    const x=src[i],hide=()=>{msg.style.display="none";buf.style.display="none"};if(AF&&x.kind!=="hls"){store.set("vb","0");location.reload();return}
+    const x=src[i],hide=()=>{msg.style.display="none";buf.style.display="none"};if(AF&&x.kind!=="hls"){location.reload();return}
     const bad=t=>{msg.style.display="flex";msg.replaceChildren(h("div",{style:"font-size:12px;word-break:break-all;padding:0 8px;max-height:130px;overflow:auto"},t||"This stream failed to load.",h("div",{style:"margin-top:12px"},h("button",{class:"chip",onclick:()=>{tried.clear();play(cur)}},"↻ Retry"))))};
     const fb=()=>{let n=src.findIndex((s,j)=>!tried.has(j)&&s.backup&&!x.backup&&s.kind===x.kind&&s.res===x.res);if(n<0)n=src.findIndex((_,j)=>!tried.has(j));if(n<0)return false;msg.textContent="Trying another source…";play(n);return true};
     video.onplaying=hide;video.oncanplay=hide;video.onloadeddata=hide;
@@ -1812,7 +1827,8 @@ async function watch(id,slug,se,ep){
     if(src.length>1)r.push({label:"Source",val:src[cur].label,opts:src.map((y,j)=>({t:y.label,on:j===cur,f:()=>{tried.clear();play(j)}}))});
     if(hls&&hls.audioTracks&&hls.audioTracks.length>1)r.push({label:"Audio track",val:(hls.audioTracks[hls.audioTrack]||{}).name||"",opts:hls.audioTracks.map((t,k)=>({t:t.name||t.lang||"Track "+(k+1),on:hls.audioTrack===k,f:()=>{hls.audioTrack=k}}))});
     else{const na=video.audioTracks;if(na&&na.length>1){const L=[...na];r.push({label:"Audio track",val:(L.find(t=>t.enabled)||{}).label||(L.find(t=>t.enabled)||{}).language||"",opts:L.map((t,k)=>({t:t.label||t.language||"Track "+(k+1),on:!!t.enabled,f:()=>{L.forEach((x,j)=>x.enabled=j===k)}}))})}}
-    if(src[cur]&&src[cur].kind==="hls"&&hls)r.push({label:"Voice boost (if voices are missing)",tog:{on:VB_ON(),f:()=>{const on=!VB_ON();store.set("vb",on?"1":"0");if(on&&!vbInit()){store.set("vb","0");return}vbApply()}}});
+    if(src[cur]&&src[cur].kind==="hls"&&hls)r.push({label:"Audio mode (if voices are missing)",val:{"0":"Normal","1":"Voice boost","2":"All channels"}[VB_MODE()],opts:[["1","Voice boost (default)"],["2","All channels mix"],["0","Normal"]].map(([v,t])=>({t,on:VB_MODE()===v,f:()=>{store.set("vbm",v);if(!vbInit())return;vbApply()}}))});
+    if(AF&&src[cur]&&src[cur].kind==="hls")r.push({label:"Audio levels (peak %)",val:["L","R","C","LFE","Ls","Rs"].map((n,k)=>n+" "+Math.round(AF.pk[k]*100)).join("  "),opts:[]});
     if(d.dubs.length>1)r.push({label:"Language",val:(d.dubs.find(x=>String(x.id)===String(id))||{}).lang||"",opts:d.dubs.map(x=>({t:x.lang,on:String(x.id)===String(id),f:()=>{if(String(x.id)!==String(id))go("#/watch/"+x.id+"/"+x.slug+"/"+se+"/"+ep)}}))});
     if(caps.length)r.push({label:"Subtitles",val:subIdx<0?"Off":(caps[subIdx]||{}).lang,opts:[{t:"Off",on:subIdx<0,f:()=>setSub(-1)},...caps.map((c,k)=>({t:c.lang,on:subIdx===k,f:()=>setSub(k)}))]});
     else r.push({label:"Subtitles",val:"Not available",opts:[]});
