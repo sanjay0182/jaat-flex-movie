@@ -15,7 +15,7 @@ import captcha
 import protect
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
 app = FastAPI(title="JaatFlix API", version="3.0")
 app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()], allow_methods=["*"], allow_headers=["*", "X-Device", "X-VIP-Key", "X-Captcha", "X-Admin-Key"])
@@ -1400,8 +1400,7 @@ async def _dl_hls(u, name, check, done=None):
 
 @app.get("/dl")
 async def download(request: Request, u: str = "", name: str = "video", check: int = 0, t: str = "", e: str = ""):
-    if os.getenv("DL_OFF", "0") == "1":     # DL_OFF=1 (Render env) = downloads switched off, no video bytes leave this server through /dl
-        return JSONResponse({"ok": False, "error": "Download is turned off."}, status_code=403)
+    return JSONResponse({"ok": False, "error": "Download is turned off."}, status_code=403)     # downloads no longer go through this server (the phone downloads from the relay, see /api/dltok)
     if e:
         u = protect.dec(e)
     if not u.startswith("http"):
@@ -1411,16 +1410,6 @@ async def download(request: Request, u: str = "", name: str = "video", check: in
         ok, why = protect.verify(pc, u, t, "d")
         if not ok or not protect.safe_url(u):
             return JSONResponse({"ok": False, "error": "This download link has expired. Please press Download again."}, status_code=403)
-    # DOWNLOAD VIA THE RELAY: the real file is carried by the Wispbyte relay, not by this server (this server only answers a redirect).
-    # The "check=1" call above stays here (it reads only the CDN answer head, no video bytes).  DL_VIA_WORKER=0 = old way (file through this server).
-    # Playlists (.m3u8) still go the old way.  Needs VIDEO_WORKER, and the relay files with the "dn" (file name) change.
-    if (not check and os.getenv("DL_VIA_WORKER", "1") != "0" and _worker_bases()
-            and ".m3u8" not in u.split("?")[0].lower() and protect.safe_url(u)):
-        try:
-            return RedirectResponse(_px(u, pc, None, bind=False) + "&dn=" + quote(_fname(name, ".mp4"), safe=""), status_code=302,
-                                    headers={"Cache-Control": "no-store"})
-        except Exception:
-            pass
     did = None
     if not check:
         did, n = protect.dl_begin(pc["ip"])
@@ -1474,8 +1463,6 @@ async def download(request: Request, u: str = "", name: str = "video", check: in
 @app.post("/api/dltok")
 async def api_dltok(request: Request):
     """Download ticket: only for a signed-in user, only for a url this page was given (its stream link proves that)."""
-    if os.getenv("DL_OFF", "0") == "1":
-        return JSONResponse({"error": "Download is turned off."}, status_code=403)
     b = await _body(request)
     u, t = str(b.get("u", "")), str(b.get("t", ""))
     if u and not u.startswith("http"):      # the page sends the opaque e= text of its stream link
@@ -1489,7 +1476,9 @@ async def api_dltok(request: Request):
         if not ok or not protect.safe_url(u):
             return JSONResponse({"error": "This video link has expired. Please reload the video."}, status_code=403)
     nm = str(b.get("name", "video"))[:120]
-    return {"url": PUBLIC_BASE + protect.link(u, pc, None, "d", "/dl") + "&name=" + quote(nm, safe="")}
+    if not _worker_bases() or ".m3u8" in u.split("?")[0].lower() or not protect.safe_url(u):
+        return JSONResponse({"error": "Download is not available for this stream."}, status_code=400)
+    return {"wurl": _px(u, pc, None, bind=False)}       # relay link: the phone's service worker downloads the file from it (no decrypt on the relay or on Render)
 
 
 # ===================== ACCOUNTS (JaatFlix's own database) =====================

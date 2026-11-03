@@ -35,7 +35,7 @@ function bad(why) {
   try { console.warn("[sw] pass-through failed:", why); } catch (e) {}
 }
 
-async function go(rq, u) {
+async function go(rq, u, strict) {
   const id = ++seqNo, t0 = now();
   try {
     const pt = new URL(u.href);
@@ -80,14 +80,82 @@ async function go(rq, u) {
     log(id, "player gets the video after " + (now() - t0).toFixed(0) + "ms");
     return new Response(o.body, { status: o.status, headers: hd });
   } catch (e) {
-    log(id, "FAILED after " + (now() - t0).toFixed(0) + "ms: " + (e && e.message) + "  -> using the normal /p way");
+    log(id, "FAILED after " + (now() - t0).toFixed(0) + "ms: " + (e && e.message) + (strict ? "  (download: no fallback)" : "  -> using the normal /p way"));
+    if (strict) throw e;                                /* download: no fallback to the relay-decrypt way */
     bad(e && e.message);
     return fetch(rq);                                   /* the normal way */
   }
 }
 
+/* ===== DOWNLOAD ON THE PHONE =====
+   The page opens (hidden iframe)  /__sw_dl?u=<relay /p link>&n=<file name>.  This worker then asks the relay for the file piece by piece
+   (the same pass-through as the player: the relay does NOT decrypt, this phone does; NO fallback to any other way) and hands the plain bytes to the browser's download
+   manager with Content-Disposition: attachment.  Nothing of the file goes through Render.  Failed piece = tried again from the same byte. */
+const DL_PATH = "/__sw_dl";
+const dlSafe = n => String(n || "").replace(/[^A-Za-z0-9._-]+/g, "").slice(0, 120) || "video.mp4";
+const dlSleep = ms => new Promise(r => setTimeout(r, ms));
+function dlTell(ok) { try { self.clients.matchAll({ includeUncontrolled: true }).then(l => l.forEach(c => c.postMessage({ t: "dl-end", ok: ok !== false }))).catch(() => {}); } catch (e) {} }
+function dlPiece(link, a, b) {
+  const rq = new Request(link.href, { headers: { Range: "bytes=" + a + "-" + b }, mode: "cors", credentials: "omit" });
+  return go(rq, link, true);                                     /* pass-through on the phone only (same as the player), NO fallback; a failed piece is simply asked again */
+}
+async function dlHandle(u, fin) {
+  const end = ok => { dlTell(ok); try { fin(); } catch (e) {} };
+  let link;
+  try { link = new URL(u.searchParams.get("u") || ""); } catch (_) { end(false); return new Response("bad link", { status: 400 }); }
+  if (link.pathname !== "/p" || !link.searchParams.has("e") || !link.searchParams.has("t")) { end(false); return new Response("bad link", { status: 400 }); }
+  const name = dlSafe(u.searchParams.get("n"));
+  let first = null;
+  for (let i = 0; i < 3 && !first; i++) {
+    try { const x = await dlPiece(link, 0, CHUNK - 1); if (x.status === 200 || x.status === 206) first = x; } catch (e) {}
+    if (!first) await dlSleep(1000 * (i + 1));
+  }
+  if (!first) { end(false); return new Response("Download failed", { status: 502 }); }
+  const cm = /\/(\d+)\s*$/.exec(first.headers.get("content-range") || "");
+  const whole = first.status === 200;                                   /* the server ignored Range: this body is the whole file */
+  const total = cm ? +cm[1] : (whole ? (+first.headers.get("content-length") || 0) : 0);
+  let ct = first.headers.get("content-type") || "video/mp4";
+  if (!/^(video|application)\//i.test(ct)) ct = "video/mp4";
+  let reader = first.body.getReader(), pos = 0, piece = 0, bad = 0;
+  const body = new ReadableStream({
+    async pull(ctrl) {
+      try {
+        for (;;) {
+          let r;
+          try { r = await reader.read(); } catch (e) { r = { done: true, broken: true }; }
+          if (!r.done) { pos += r.value.length; piece += r.value.length; bad = 0; ctrl.enqueue(r.value); return; }
+          if (whole && !r.broken) { ctrl.close(); end(); return; }
+          if (!r.broken && (total ? pos >= total : piece < CHUNK)) { ctrl.close(); end(); return; }
+          if (whole) throw new Error("connection lost");
+          if (++bad > 6) throw new Error("download stopped at byte " + pos);
+          piece = 0;
+          let nx = null;
+          try { nx = await dlPiece(link, pos, pos + CHUNK - 1); } catch (e) { nx = null; }
+          if (nx && nx.status === 416) { ctrl.close(); end(); return; }
+          if (!nx || nx.status !== 206) { await dlSleep(1000 * bad); continue; }
+          try { reader.cancel(); } catch (e) {}
+          reader = nx.body.getReader();
+        }
+      } catch (e) { end(false); ctrl.error(e); }
+    },
+    cancel() { try { reader.cancel(); } catch (e) {} end(); }
+  });
+  const hd = new Headers({ "Content-Type": ct, "Content-Disposition": 'attachment; filename="' + name + '"', "Cache-Control": "no-store" });
+  if (total) hd.set("Content-Length", String(total));
+  return new Response(body, { status: 200, headers: hd });
+}
+self.addEventListener("message", () => {});                   /* a ping from the page while a download runs: keeps this worker alive */
+
 self.addEventListener("fetch", e => {
   const rq = e.request;
+  let u0;
+  try { u0 = new URL(rq.url); } catch (_) { return; }
+  if (rq.method === "GET" && u0.origin === self.location.origin && u0.pathname === DL_PATH) {
+    let fin; const dp = new Promise(r => { fin = r; });
+    e.waitUntil(dp);
+    e.respondWith(dlHandle(u0, fin));
+    return;
+  }
   if (rq.method !== "GET" || Date.now() < offUntil) return;
   let u;
   try { u = new URL(rq.url); } catch (_) { return; }

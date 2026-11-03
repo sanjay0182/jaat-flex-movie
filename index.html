@@ -1756,9 +1756,13 @@ async function watch(id,slug,se,ep){
       if(lu){const lq=new URL(lu,location.href),q=lq.searchParams.get("e")||lq.searchParams.get("u");if(q){raw=q;tk=lq.searchParams.get("t")||tk}}}
     const nm=(title+(x.kind==="hls"?"":" "+x.label)).replace(/[^\w\- ]+/g,"").trim().replace(/ +/g,"_")||"video";
     dlb.disabled=true;dlMsg.textContent="Checking…";
-    let dl;try{dl=(await api("/api/dltok",{u:raw,t:tk,name:nm})).url}catch(e){dlMsg.textContent=e.login?"Please sign in to download.":(e.message||"Download is not available.");if(e.login)authModal();dlb.disabled=false;return}
-    try{const r=await fetch(dl+"&check=1"),j=await r.json().catch(()=>({}));if(!r.ok||!j.ok)throw new Error(j.error||"Download is not available for this stream.");
-      const a=h("a",{href:dl});document.body.append(a);a.click();setTimeout(()=>a.remove(),1000);
+    let jd;try{jd=await api("/api/dltok",{u:raw,t:tk,name:nm})}catch(e){dlMsg.textContent=e.login?"Please sign in to download.":(e.message||"Download is not available.");if(e.login)authModal();dlb.disabled=false;return}
+    /* DOWNLOAD ON THE PHONE (like the player): sw.js gets the file from the relay and opens the locked bytes itself.  There is no other way: nothing goes through Render. */
+    if(!(jd&&jd.wurl&&"serviceWorker"in navigator&&navigator.serviceWorker.controller)){dlMsg.textContent="Download is not ready. Reload the page once and try again.";dlb.disabled=false;return}
+    try{const f=document.createElement("iframe");f.style.display="none";f.src="/__sw_dl?u="+encodeURIComponent(jd.wurl)+"&n="+encodeURIComponent(nm+".mp4");document.body.append(f);
+      const ka=setInterval(()=>{try{navigator.serviceWorker.controller.postMessage("ka")}catch(e){}},15000);
+      const end=ev=>{if(ev.data&&ev.data.t==="dl-end"){clearInterval(ka);navigator.serviceWorker.removeEventListener("message",end);if(ev.data.ok===false)dlMsg.textContent="Download failed. Please try again.";setTimeout(()=>f.remove(),3000)}};
+      navigator.serviceWorker.addEventListener("message",end);setTimeout(()=>{clearInterval(ka);f.remove()},3*3600*1000);
       dlMsg.textContent="Download started. Check your browser's downloads. The file will play in VLC or MX Player."}
     catch(e){dlMsg.textContent=e.message}dlb.disabled=false};
   video.onended=()=>{store.set(key,"0");saveProg(true);mark(true);if(!next||!auto.checked)return;let n=5;const lb=h("span",{},"Next episode in "+n+"s"),bar=h("div",{class:"cd countdown"},lb,h("div",{},h("button",{class:"go",onclick:()=>{clearInterval(t);go(nUrl(next))}},"Play now"),h("button",{onclick:()=>{clearInterval(t);bar.remove()}},"Cancel")));
