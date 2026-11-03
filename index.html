@@ -1209,7 +1209,7 @@ async function streamApi(id,slug,se,ep){const hj=window.Hls&&Hls.isSupported()?1
   for(let tries=0;;tries++){
     try{
       if(useClient){
-        let R=null;try{R=await Promise.race([mbResolve(id,slug,se,ep),new Promise((_,no)=>setTimeout(()=>no(new Error("timeout")),9000))])}catch(e){R=null}
+        let R=null;try{R=await mbResolve(id,slug,se,ep)}catch(e){R=null}
         if(R&&R.items.length){
           try{const j=await api("/api/sign",{id:String(id),detail_path:slug,se,ep,hj,items:R.items,cap:R.cap});if(j&&j.sources&&j.sources.length)return j}
           catch(e){if(e.status===403||e.status===429)throw e}}
@@ -1822,7 +1822,7 @@ async function watch(id,slug,se,ep){
     else{const run=()=>{video.src=x.url;video.play().catch(hide)},AC=window.AudioContext||window.webkitAudioContext;
       /* MP4: Web Audio needs a CORS-readable source. Probe first; only when it passes is the audio mixer used, otherwise the video plays exactly as before. */
       if(AC&&x.kind!=="hls"&&x.url&&(VB_ON()||AF)){
-        fetch(x.url,{headers:{Range:"bytes=0-1"},signal:(()=>{try{const ac=new AbortController();setTimeout(()=>ac.abort(),8000);return ac.signal}catch(e){return undefined}})()}).then(r=>{if(!(r.status===200||r.status===206))throw new Error("status "+r.status);try{r.body&&r.body.cancel()}catch(e){}
+        fetch(x.url,{headers:{Range:"bytes=0-1"}}).then(r=>{if(!(r.status===200||r.status===206))throw new Error("status "+r.status);try{r.body&&r.body.cancel()}catch(e){}
           if(cur!==i)return;video.crossOrigin="anonymous";if(vbInit())vbApply();run()})
         .catch(e=>{if(cur!==i)return;clog({type:"mp4-cors-probe-failed",err:String(e&&e.message)});if(AF){location.reload();return}video.removeAttribute("crossorigin");run()})}
       else run()}}
