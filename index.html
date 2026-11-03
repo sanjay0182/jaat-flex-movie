@@ -1768,7 +1768,7 @@ async function watch(id,slug,se,ep){
   /* AUDIO FIX: some dubs have the voices on the 5.1 centre channel (or on a separate audio track) and then only the music/effects are heard.
      VB = "Voice boost": Web Audio adds the centre channel on top of the normal stereo downmix. Only used for hls.js (blob source, no CORS limit);
      a cross-origin mp4 would go silent once routed through Web Audio. */
-  let AF=null;const VB_ON=()=>store.get("vb")==="1";
+  let AF=null;const VB_ON=()=>store.get("vb")!=="0";   /* default ON: the voice (centre channel) is added unless the viewer switched it off */
   function vbApply(){if(!AF)return;AF.cg.gain.value=VB_ON()?1.6:0;try{AF.ctx.resume()}catch(e){}}
   function vbInit(){if(AF)return true;try{const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return false;
     const ctx=new AC(),s=ctx.createMediaElementSource(video),base=ctx.createGain();
