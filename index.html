@@ -1221,6 +1221,7 @@ async function streamApi(id,slug,se,ep){const hj=window.Hls&&Hls.isSupported()?1
       throw e}}}
 let FWD=0,SCR={},lastY=0,BACKY=0,RT=0,MIDALLT="";
 const go=x=>{FWD=1;setTimeout(()=>{FWD=0},500);location.hash=x};
+const goR=x=>{FWD=1;setTimeout(()=>{FWD=0},500);location.replace(x)};   /* inside the player: episode / language switches REPLACE the entry, so Back never walks through old episodes */
 const goBack=()=>{if(history.length>1)history.back();else go("#/")};
 /* Midnight titles: never saved to History / Continue watching (ids are remembered on this device) */
 const MIDS=new Set((()=>{try{return JSON.parse(store.get("jf_midids")||"[]")}catch(e){return[]}})());
@@ -1288,11 +1289,17 @@ const moreOf=s=>{const m=s.more||{};return{id:String(m.genreTopId||m.rankingId||
 const hasMore=s=>{const m=s.more||{};return!!(m.query||m.genreTopId||m.rankingId||m.rankId||m.id||m.opId||m.url||m.jumpUrl||m.path||m.link)||s.items.length>=9};
 const SECT={};
 const COMINGRE=/coming|upcoming|soon/i;
-const COMING=new Set((()=>{try{return JSON.parse(store.get("jf_coming")||"[]")}catch(e){return[]}})());
-const unmarkComing=slug=>{if(COMING.delete(slug)){try{store.set("jf_coming",JSON.stringify([...COMING].slice(-400)))}catch(e){}}};
-/* a title is only "coming soon" while its release date is still in the future; once it is out (or its episode list exists) the old flag is dropped */
-const isSoon=(slug,d)=>{if(!COMING.has(slug))return false;const t=Date.parse((d&&d.rel)||"");if(!isNaN(t)){if(t<=Date.now()){unmarkComing(slug);return false}return true}if(d&&d.series&&d.real){unmarkComing(slug);return false}return true};
-const markComing=items=>{let n=COMING.size;(items||[]).forEach(i=>i&&i.slug&&COMING.add(i.slug));if(COMING.size!==n){try{store.set("jf_coming",JSON.stringify([...COMING].slice(-400)))}catch(e){}}};
+/* "Coming soon" = the title is CURRENTLY in the source's Coming-soon list. Nothing is remembered for good:
+   every time that list loads, titles that left it are dropped, and a flag also expires after 2 hours (old "jf_coming" data is ignored). */
+const COMING_TTL=2*3600*1000,COMING=new Map(),COMINGBY={};
+try{const o=JSON.parse(store.get("jf_coming2")||"{}"),n=Date.now();Object.keys(o).forEach(k=>{if(n-o[k]<COMING_TTL)COMING.set(k,o[k])})}catch(e){}
+const saveComing=()=>{try{store.set("jf_coming2",JSON.stringify(Object.fromEntries([...COMING].slice(-400))))}catch(e){}};
+const unmarkComing=slug=>{if(COMING.delete(slug))saveComing()};
+const isSoon=(slug,d)=>{const t0=COMING.get(slug);if(!t0)return false;if(Date.now()-t0>COMING_TTL){unmarkComing(slug);return false}return true};
+/* items = what the source lists now. full=true: the whole list (titles missing from it are released); full=false: one more page of it */
+const markComing=(items,sec,full)=>{const cur=(items||[]).map(i=>i&&i.slug).filter(Boolean),now=Date.now();
+  if(sec){const prev=COMINGBY[sec]||[];const keep=new Set(cur);if(full)prev.forEach(sl=>{if(!keep.has(sl)){let other=false;for(const k in COMINGBY)if(k!==sec&&COMINGBY[k].indexOf(sl)>=0)other=true;if(!other)COMING.delete(sl)}});COMINGBY[sec]=full?cur:[...new Set(prev.concat(cur))]}
+  cur.forEach(sl=>COMING.set(sl,now));saveComing()};
 function browsePage(pre){
   const st={tab:"2",classify:"All",country:"All",genre:"All",year:"All",sort:"ForYou"};if(pre==="tv")st.tab="5";if(pre==="anime")st.tab="8";
   const pairs=a=>a.map(v=>[v,v]);
@@ -1316,7 +1323,7 @@ function browsePage(pre){
 function filterBlock(s){const tl=s.tabs.filter(t=>t.query);
   return[h("h2",{class:"sec"},h("span",{class:"st"},cleanT(s.section)),h("button",{class:"see",onclick:()=>go("#/browse")},"Browse all \u2192")),
     h("div",{class:"frail"},tl.map(t=>h("button",{class:"ftile",onclick:()=>go("#/all/"+encodeURIComponent(JSON.stringify({title:t.name,query:t.query})))},t.image?img(t.image):null,h("span",{},t.name))).concat(h("button",{class:"ftile fall",onclick:()=>go("#/browse")},h("span",{},"More ›"))))]}
-function secBlock(s,land){if(land)markMid(s.items);SEC[s.section]=s.items;SECT[s.section]=s.tabs||[];if(COMINGRE.test(s.section||""))markComing(s.items);
+function secBlock(s,land){if(land)markMid(s.items);SEC[s.section]=s.items;SECT[s.section]=s.tabs||[];if(COMINGRE.test(s.section||""))markComing(s.items,s.section,true);
   const head=h("h2",{class:"sec"},h("span",{class:"st"},cleanT(s.section)),hasMore(s)?h("button",{class:"see",onclick:()=>{MIDALLT=land?s.section:"";go("#/all/"+encodeURIComponent(JSON.stringify(moreOf(s))))}},"See all \u2192"):null),
     box=h("div",{},isTop(s)?top10Box(s.items,land?" midr":""):railBox(s.items.slice(0,20),land?"midr":"")),out=[head];
   if(s.tabs&&s.tabs.length){const strip=h("div",{class:"cats sub"});
@@ -1344,7 +1351,7 @@ async function allPage(raw){let m={};try{m=JSON.parse(raw)}catch(e){}
       /* keep a small buffer; show exactly 10 per tap */
       while(buf.length<STEP&&!done){const it=await fetchPage();if(g!==gen){busy=false;return}
         if(it.length){const seen=new Set([...grid.children].map(c=>c.dataset.s));it.forEach(i=>{if(i.slug&&!seen.has(i.slug)&&!buf.some(b=>b.slug===i.slug))buf.push(i)});page++}else done=true}
-      if(COMINGRE.test(cur.title||m.title||""))markComing(buf);
+      if(COMINGRE.test(cur.title||m.title||""))markComing(buf,cur.title||m.title,page<=2);
       buf.splice(0,STEP).forEach(i=>{const c=card(i);c.dataset.s=i.slug||"";grid.append(c)});
       if(!grid.children.length){let fb=cur.items||SEC[cur.title],note="";
         if(cur.query){try{fb=applyFilter(await pool(),cur.query);note="Matches from MovieBox's home feed. The complete filtered list needs a MovieBox login."}catch(e){}}
@@ -1703,7 +1710,7 @@ function playerUI(box,video,C){
     if(isTV()&&mn.classList.contains("on"))setTimeout(()=>{const f=mn.querySelector(".mr.sel")||mn.querySelector(".mr:not(.mh)")||mn.querySelector("button");if(f)f.focus()},30)}
   function eps(){const v=C.vids(),ss=[...new Set(v.map(x=>+x.season))].sort((a,b)=>a-b);let cs=ss.includes(C.sn)?C.sn:ss[0];
     const tabs=h("div",{class:"chips"}),grid=h("div",{class:"eps"}),paint=()=>{const pp=epProgAll(C.slug);tabs.replaceChildren(...(ss.length>1?ss.map(n=>h("button",{class:"chip","aria-pressed":String(n===cs),onclick:()=>{cs=n;paint()}},"S"+n)):[]));
-      grid.replaceChildren(...v.filter(x=>+x.season===cs).sort((a,b)=>a.episode-b.episode).map(x=>{const b=h("button",{class:"ep"+(+x.season===C.sn&&+x.episode===C.en?" cur":""),onclick:()=>go(C.epUrl(x.season,x.episode))},h("span",{class:"en2"},String(x.episode)),h("span",{class:"epm"},h("i")),h("small",{class:"epp"}));setEpBox(b,pp[x.season+":"+x.episode]||0);return b}));const c=grid.querySelector(".cur");if(c)setTimeout(()=>{pe.scrollTop+=c.getBoundingClientRect().top-pe.getBoundingClientRect().top-(pe.clientHeight-c.offsetHeight)/2},0)};
+      grid.replaceChildren(...v.filter(x=>+x.season===cs).sort((a,b)=>a.episode-b.episode).map(x=>{const b=h("button",{class:"ep"+(+x.season===C.sn&&+x.episode===C.en?" cur":""),onclick:()=>goR(C.epUrl(x.season,x.episode))},h("span",{class:"en2"},String(x.episode)),h("span",{class:"epm"},h("i")),h("small",{class:"epp"}));setEpBox(b,pp[x.season+":"+x.episode]||0);return b}));const c=grid.querySelector(".cur");if(c)setTimeout(()=>{pe.scrollTop+=c.getBoundingClientRect().top-pe.getBoundingClientRect().top-(pe.clientHeight-c.offsetHeight)/2},0)};
     const hd=h("div",{class:"peh"},h("b",{},"Episodes"),btn("","x",close,"Close"));pe.replaceChildren(hd,tabs,grid);paint()}
   up();poke();return{up,poke}}
 
@@ -1722,8 +1729,8 @@ async function watch(id,slug,se,ep){
   const title=d.title+(d.series?" · S"+se+" E"+ep:"");
   let next=null;if(d.series){const s=d.seasons.find(x=>x.se===se);if(s&&ep<s.n)next=[se,ep+1];else{const ns=d.seasons.find(x=>x.se>se);if(ns)next=[ns.se,1]}}
   const nUrl=n=>"#/watch/"+id+"/"+slug+"/"+n[0]+"/"+n[1];
-  const prevBtn=d.series&&ep>1?h("button",{class:"btn pv",onclick:()=>go(nUrl([se,ep-1]))},"‹ Prev"):null,
-    nextBtn=d.series&&next?h("button",{class:"pri nx",onclick:()=>go(nUrl(next))},"Next episode · S"+next[0]+" E"+next[1]+" ›"):null;
+  const prevBtn=d.series&&ep>1?h("button",{class:"btn pv",onclick:()=>goR(nUrl([se,ep-1]))},"‹ Prev"):null,
+    nextBtn=d.series&&next?h("button",{class:"pri nx",onclick:()=>goR(nUrl(next))},"Next episode · S"+next[0]+" E"+next[1]+" ›"):null;
   const nextBar=d.series?h("div",{class:"nextbar"},prevBtn,nextBtn):null;
   const allVids=[];(d.seasons||[]).forEach(s=>{for(let k=1;k<=s.n;k++)allVids.push({season:s.se,episode:k})});
   const dlb=h("button",{class:"btn"},"⬇ "+(d.series?"Download this episode":"Download this movie")),dlMsg=h("div",{class:"sub",style:"margin-top:10px"},"");
@@ -1737,15 +1744,15 @@ async function watch(id,slug,se,ep){
   const PICS={standard:["Standard",""],vivid:["Vivid","saturate(1.4) contrast(1.06)"],dynamic:["Dynamic","saturate(1.25) contrast(1.15) brightness(1.06)"],cinema:["Cinema","contrast(1.12) saturate(.92) brightness(.94)"],warm:["Warm / night","sepia(.22) saturate(1.1) brightness(.92)"]};
   let picNow=PICS[store.get("pic")]?store.get("pic"):"standard";video.style.filter=PICS[picNow][1];
   const setPic=k=>{picNow=k;video.style.filter=PICS[k][1];store.set("pic",k)};
-  const langBox=d.dubs.length>1?h("div",{class:"lrow"},d.dubs.map(x=>h("button",{class:"chip","aria-pressed":String(String(x.id)===String(id)),onclick:()=>{if(String(x.id)!==String(id))go("#/watch/"+x.id+"/"+x.slug+"/"+se+"/"+ep)}},x.lang))):null;
+  const langBox=d.dubs.length>1?h("div",{class:"lrow"},d.dubs.map(x=>h("button",{class:"chip","aria-pressed":String(String(x.id)===String(id)),onclick:()=>{if(String(x.id)!==String(id))goR("#/watch/"+x.id+"/"+x.slug+"/"+se+"/"+ep)}},x.lang))):null;
   const cbar=h("div",{class:"cbar"},langBox,h("div",{class:"crow"},h("div",{class:"seekgrp"},sb("−10s",-10),sb("−0.1",-.1),sb("+0.1",.1),sb("+10s",10))),
     h("div",{class:"sub"},"Audio slightly off? Nudge it with the 0.1 buttons."));
-  mount(h("button",{class:"back",onclick:()=>go("#/show/"+slug+"/"+id)},"← "+d.title),h("h2",{style:"margin:0 0 12px;font-size:19px"},title),box,nextBar,cbar,
+  mount(h("button",{class:"back",onclick:()=>{const t="#/show/"+slug+"/"+id;if(FROMSHOW&&history.length>1)history.back();else goR(t)}},"← "+d.title),h("h2",{style:"margin:0 0 12px;font-size:19px"},title),box,nextBar,cbar,
     h("div",{class:"panel slim"},d.series?h("label",{class:"chk"},auto,"Play next episode automatically"):null,h("div",{},dlb,dlMsg)),
-    d.series&&d.seasons.length?h("div",{class:"epbox"},epGrid(d.seasons,se,ep,(s,e)=>go(nUrl([s,e])),slug)):null);
+    d.series&&d.seasons.length?h("div",{class:"epbox"},epGrid(d.seasons,se,ep,(s,e)=>goR(nUrl([s,e])),slug)):null);
   const mine=()=>document.body.contains(box);
   let data;try{data=await streamApi(id,slug,d.series?se:0,d.series?ep:0)}catch(e){if(mine()){msg.textContent=e.cancelled?"Please finish the quick check to play this video. Open the video again to retry.":(e.status===403||e.status===429)&&e.message?e.message:"Error"+(e.status?" "+e.status:"")+": "+(e.message||"server error");if(e.login){msg.append(" ",h("button",{class:"pri",style:"margin-top:8px",onclick:authModal},"Sign in"))}}return}
-  if(!mine())return;const src=data.sources||[];if(!src.length){msg.style.whiteSpace="pre-wrap";msg.textContent=(data.note||"No stream is available for this title.")+(data.why?"\n\n"+data.why:"");try{console.warn("stream",data)}catch(_){}return}
+  if(!mine())return;const src=data.sources||[];if(src.length)unmarkComing(slug);if(!src.length){msg.style.whiteSpace="pre-wrap";msg.textContent=(data.note||"No stream is available for this title.")+(data.why?"\n\n"+data.why:"");try{console.warn("stream",data)}catch(_){}return}
   await meReady;if(!mine())return;loadSeen(id);
   const key="pos:"+id+":"+se+":"+ep,sp=ME&&PROG.find(p=>String(p.sid)===String(id)&&+p.season===+se&&+p.episode===+ep);
   let resume=(sp&&sp.pos>10&&sp.dur-sp.pos>30?sp.pos:0)||+store.get(key)||0,cur=0,qSel=-1;
@@ -1765,8 +1772,8 @@ async function watch(id,slug,se,ep){
       navigator.serviceWorker.addEventListener("message",end);setTimeout(()=>{clearInterval(ka);f.remove()},3*3600*1000);
       dlMsg.textContent="Download started. Check your browser's downloads. The file will play in VLC or MX Player."}
     catch(e){dlMsg.textContent=e.message}dlb.disabled=false};
-  video.onended=()=>{store.set(key,"0");saveProg(true);mark(true);if(!next||!auto.checked)return;let n=5;const lb=h("span",{},"Next episode in "+n+"s"),bar=h("div",{class:"cd countdown"},lb,h("div",{},h("button",{class:"go",onclick:()=>{clearInterval(t);go(nUrl(next))}},"Play now"),h("button",{onclick:()=>{clearInterval(t);bar.remove()}},"Cancel")));
-    box.append(bar);const t=setInterval(()=>{n--;lb.textContent="Next episode in "+n+"s";if(n<=0){clearInterval(t);go(nUrl(next))}},1000);timers.push(t)};
+  video.onended=()=>{store.set(key,"0");saveProg(true);mark(true);if(!next||!auto.checked)return;let n=5;const lb=h("span",{},"Next episode in "+n+"s"),bar=h("div",{class:"cd countdown"},lb,h("div",{},h("button",{class:"go",onclick:()=>{clearInterval(t);goR(nUrl(next))}},"Play now"),h("button",{onclick:()=>{clearInterval(t);bar.remove()}},"Cancel")));
+    box.append(bar);const t=setInterval(()=>{n--;lb.textContent="Next episode in "+n+"s";if(n<=0){clearInterval(t);goR(nUrl(next))}},1000);timers.push(t)};
   timers.push(setInterval(()=>{if(!video.paused&&video.currentTime>5)store.set(key,String(video.currentTime))},8000));
   timers.push(setInterval(()=>{if(!video.paused&&video.currentTime>5){saveProg();mark()}},10000));video.addEventListener("pause",()=>{if(!video.ended&&video.currentTime>5){saveProg();mark()}});
   /* AUDIO FIX: some dubs have the voices on the 5.1 centre channel (or on a separate audio track) and then only the music/effects are heard.
@@ -1839,14 +1846,14 @@ async function watch(id,slug,se,ep){
     else{const na=video.audioTracks;if(na&&na.length>1){const L=[...na];r.push({label:"Audio track",val:(L.find(t=>t.enabled)||{}).label||(L.find(t=>t.enabled)||{}).language||"",opts:L.map((t,k)=>({t:t.label||t.language||"Track "+(k+1),on:!!t.enabled,f:()=>{L.forEach((x,j)=>x.enabled=j===k)}}))})}}
     if((src[cur]&&src[cur].kind==="hls"&&hls)||AF||(src[cur]&&src[cur].kind==="mp4"))r.push({label:"Audio mode (if voices are missing)",val:(!AF&&(src[cur]||{}).kind!=="hls")?"Not active ("+(vbWhy||"checking")+")":{"0":"Normal","1":"Voice boost","2":"All channels"}[VB_MODE()],opts:[["1","Voice boost (default)"],["2","All channels mix"],["0","Normal"]].map(([v,t])=>({t,on:VB_MODE()===v,f:()=>{store.set("vbm",v);if(AF){vbApply();return}if((src[cur]||{}).kind==="hls"){if(vbInit())vbApply();return}tried.clear();play(cur)}}))});
     if(AF)r.push({label:"Audio levels (peak %)",val:["L","R","C","LFE","Ls","Rs"].map((n,k)=>n+" "+Math.round(AF.pk[k]*100)).join("  "),opts:[]});
-    if(d.dubs.length>1)r.push({label:"Language",val:(d.dubs.find(x=>String(x.id)===String(id))||{}).lang||"",opts:d.dubs.map(x=>({t:x.lang,on:String(x.id)===String(id),f:()=>{if(String(x.id)!==String(id))go("#/watch/"+x.id+"/"+x.slug+"/"+se+"/"+ep)}}))});
+    if(d.dubs.length>1)r.push({label:"Language",val:(d.dubs.find(x=>String(x.id)===String(id))||{}).lang||"",opts:d.dubs.map(x=>({t:x.lang,on:String(x.id)===String(id),f:()=>{if(String(x.id)!==String(id))goR("#/watch/"+x.id+"/"+x.slug+"/"+se+"/"+ep)}}))});
     if(caps.length)r.push({label:"Subtitles",val:subIdx<0?"Off":(caps[subIdx]||{}).lang,opts:[{t:"Off",on:subIdx<0,f:()=>setSub(-1)},...caps.map((c,k)=>({t:c.lang,on:subIdx===k,f:()=>setSub(k)}))]});
     else r.push({label:"Subtitles",val:"Not available",opts:[]});
     r.push({label:"Screen",val:(FITS.find(f=>f[0]===fitNow)||FITS[0])[1],opts:FITS.map(([v,l])=>({t:l,on:v===fitNow,f:()=>{fitNow=v;video.style.objectFit=v;store.set("fit",v)}}))});
     r.push({label:"Picture mode",val:PICS[picNow][0],opts:Object.keys(PICS).map(k=>({t:PICS[k][0],on:k===picNow,f:()=>{setPic(k)}}))});
     if(d.series)r.push({label:"Autoplay next",tog:{on:auto.checked,f:()=>{auto.checked=!auto.checked;store.set("auto",auto.checked?"1":"0")}}});
     return r};
-  playerUI(box,video,{show:d.title,sub:()=>title,hasPrev:()=>!!prevBtn,prev:()=>prevBtn&&prevBtn.click(),hasNext:()=>!!next,next:()=>next&&go(nUrl(next)),vids:()=>allVids,sn:se,en:ep,slug,rows,skipCands:()=>[],autoNext:()=>auto.checked,epUrl:(s2,e2)=>nUrl([s2,e2])});
+  playerUI(box,video,{show:d.title,sub:()=>title,hasPrev:()=>!!prevBtn,prev:()=>prevBtn&&prevBtn.click(),hasNext:()=>!!next,next:()=>next&&goR(nUrl(next)),vids:()=>allVids,sn:se,en:ep,slug,rows,skipCands:()=>[],autoNext:()=>auto.checked,epUrl:(s2,e2)=>nUrl([s2,e2])});
   api("/api/captions/"+id+"?detail_path="+encodeURIComponent(slug)+"&id="+encodeURIComponent((data.cap&&data.cap.id)||"")+"&fmt="+((data.cap&&data.cap.fmt)||"MP4")+"&ids="+encodeURIComponent(((data.cap&&data.cap.ids)||[]).join(","))).then(j=>{if(!mine())return;caps=j.captions||[];
     caps.forEach(c=>video.append(h("track",{kind:"subtitles",label:c.lang,src:c.url})));
     const k=caps.findIndex(c=>c.lang===store.get("sub"));if(k>=0)setTimeout(()=>setSub(k),300)}).catch(()=>{});
@@ -1942,7 +1949,7 @@ function route(){if(window.__splashHide)setTimeout(window.__splashHide,300);kill
   if(p[0]==="reels"){try{history.replaceState(null,"","#/show/"+encodeURIComponent(p[1]||"")+"/"+encodeURIComponent(p[2]||""))}catch(e){}return show(p[1],p[2])}if(p[0]==="show")return show(p[1],p[2]);if(p[0]==="watch")return watch(p[1],p[2],p[3]||0,p[4]||0);if(p[0]==="list")return listPage();if(p[0]==="account")return accountPage();if(p[0]==="midnight")return midnightPage();if(p[0]==="all")return allPage(p[1]);if(p[0]==="browse")return browsePage(p[1]);home()}
 /* video opened on the phone: the relay sends locked bytes, sw.js opens them (falls back to the normal way by itself) */
 try{if("serviceWorker"in navigator&&window.isSecureContext&&crypto&&crypto.subtle)navigator.serviceWorker.register("/sw.js").catch(()=>{})}catch(e){}
-addEventListener("hashchange",e=>{try{SCR[new URL(e.oldURL).hash]=lastY}catch(_){}BACKY=FWD?0:(SCR[location.hash]||0);FWD=0;clearInterval(RT);route();if(BACKY>40)restoreY(BACKY)});route();
+let PREVH="",FROMSHOW=0;addEventListener("hashchange",e=>{try{PREVH=new URL(e.oldURL).hash}catch(_){PREVH=""}if(/^#\/?watch\//.test(location.hash)){if(/^#\/?show\//.test(PREVH))FROMSHOW=1;else if(!/^#\/?watch\//.test(PREVH))FROMSHOW=0}try{SCR[new URL(e.oldURL).hash]=lastY}catch(_){}BACKY=FWD?0:(SCR[location.hash]||0);FWD=0;clearInterval(RT);route();if(BACKY>40)restoreY(BACKY)});route();
 </script>
 </body>
 </html>
