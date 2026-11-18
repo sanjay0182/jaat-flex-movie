@@ -1171,9 +1171,9 @@ html:not(.big) .nav button,html:not(.big) .nav button.on{flex:1 1 0;font-size:0;
 html:not(.big) .nav button svg{flex:none;width:24px;height:24px}
 
 /* ===== no long-press menus (Download image / Open in new tab) ===== */
-img,.pw,.card,.ep,.sr,.hero,.rail,.top,.nav{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+img,.pw,.card,.ep,.sr{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 img{-webkit-user-drag:none;user-drag:none}
-.card img,.pw img,.hero img,.ep img,.sr img,.rail img{pointer-events:none}
+.card img,.pw img,.ep img,.sr img{pointer-events:none}
 input,textarea,[contenteditable=true]{-webkit-user-select:text;user-select:text}
 /* ===== Library (My List + History) ===== */
 .lib{padding-bottom:calc(var(--nh,70px) + 96px)}
@@ -1182,13 +1182,13 @@ input,textarea,[contenteditable=true]{-webkit-user-select:text;user-select:text}
 .lhead p{margin:4px 0 0;color:var(--dim);font-size:13px;font-weight:600}
 .edt{border:1px solid var(--line);background:var(--panel);color:var(--text);font-weight:800;font-size:14px;padding:9px 20px;border-radius:999px;transition:background .2s,color .2s,box-shadow .2s}
 .edt.on{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 8px 22px var(--glow)}
-.seg{position:relative;display:grid;grid-template-columns:1fr 1fr;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:4px;margin-bottom:18px}
-.seg .pill{position:absolute;top:4px;bottom:4px;left:4px;width:calc(50% - 4px);border-radius:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 8px 20px var(--glow);transition:transform .32s cubic-bezier(.2,.8,.2,1)}
-.seg[data-t=hist] .pill{transform:translateX(100%)}
-.seg button{position:relative;z-index:1;background:none;border:0;padding:11px 8px;font-weight:800;font-size:14px;color:var(--dim);display:flex;align-items:center;justify-content:center;gap:8px;transition:color .2s}
-.seg button.on{color:#fff}
-.seg em{font-style:normal;font-size:11px;font-weight:800;min-width:20px;padding:2px 7px;border-radius:999px;background:rgba(127,127,127,.22)}
-.seg button.on em{background:rgba(255,255,255,.25)}
+.lseg{position:relative;display:grid;grid-template-columns:1fr 1fr;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:4px;margin-bottom:18px}
+.lseg .pill{position:absolute;top:4px;bottom:4px;left:4px;width:calc(50% - 4px);border-radius:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 8px 20px var(--glow);transition:transform .32s cubic-bezier(.2,.8,.2,1)}
+.lseg[data-t=hist] .pill{transform:translateX(100%)}
+.lseg button{position:relative;z-index:1;background:none;border:0;padding:11px 8px;font-weight:800;font-size:14px;color:var(--dim);display:flex;align-items:center;justify-content:center;gap:8px;transition:color .2s}
+.lseg button.on{color:#fff}
+.lseg em{font-style:normal;font-size:11px;font-weight:800;min-width:20px;padding:2px 7px;border-radius:999px;background:rgba(127,127,127,.22)}
+.lseg button.on em{background:rgba(255,255,255,.25)}
 .lnote{display:flex;align-items:center;gap:10px;justify-content:space-between;margin:0 0 14px;padding:11px 14px;border-radius:16px;background:var(--panel);border:1px solid var(--line);font-size:13px;color:var(--dim)}
 .lnote .pri{padding:8px 16px;font-size:13px;box-shadow:none;white-space:nowrap}
 .lib .card{animation:libin .38s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i,0)*35ms);transition:transform .22s,opacity .22s}
@@ -1217,6 +1217,7 @@ html.lite .lib .card{animation:none}
 .libtoast{position:fixed;left:50%;bottom:calc(var(--nh,70px) + 24px);transform:translateX(-50%);z-index:40;display:flex;align-items:center;gap:14px;background:rgba(20,18,22,.96);color:#fff;font-weight:700;font-size:14px;padding:10px 12px 10px 18px;border-radius:999px;box-shadow:0 10px 30px rgba(0,0,0,.4);animation:tin .28s cubic-bezier(.2,.8,.2,1);transition:opacity .35s;white-space:nowrap}
 .libtoast.out{opacity:0}
 .libtoast button{background:var(--accent);border:0;color:#fff;font-weight:800;border-radius:999px;padding:7px 14px}
+.lib .card,.lib .card .t{background:none!important;box-shadow:none!important}
 </style>
 </head>
 <body>
@@ -1615,7 +1616,7 @@ async function listPage(){await meReady;
     edtBtn=h("button",{class:"edt",onclick:()=>setEdit(!edit)},"Edit"),
     emL=h("em"),emH=h("em"),
     bL=h("button",{onclick:()=>tabTo("list")},"My List",emL),bH=h("button",{onclick:()=>tabTo("hist")},"History",emH),
-    seg=h("div",{class:"seg"},h("i",{class:"pill"}),bL,bH),
+    seg=h("div",{class:"lseg"},h("i",{class:"pill"}),bL,bH),
     bodyBox=h("div",{});
   root.append(h("div",{class:"lhead"},h("div",{},h("h1",{},"Library"),sub),edtBtn),seg,bodyBox);
   const tabTo=t=>{if(LIBTAB===t)return;LIBTAB=t;setEdit(false);draw()};
