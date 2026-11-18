@@ -1942,7 +1942,7 @@ async function watch(id,slug,se,ep){
     if(!video.paused&&video.readyState>=2&&abOK&&video.videoWidth){
       try{const vw=video.videoWidth,vh=video.videoHeight;abCx.drawImage(video,vw*.1,vh*.2,vw*.8,vh*.6,0,0,16,9);/* centre crop so black bars don't count */
         const dd=abCx.getImageData(0,0,16,9).data;let sm=0;for(let i=0;i<dd.length;i+=4)sm+=.2126*dd[i]+.7152*dd[i+1]+.0722*dd[i+2];
-        const avg=sm/(dd.length/4)/255,t=Math.min(1.6,Math.max(.9,.45/Math.max(avg,.05)));
+        const avg=sm/(dd.length/4)/255,t=Math.min(2.3,Math.max(.9,.5/Math.max(avg,.05)));
         if(abMode==="f")abCur=Math.abs(t-abCur)>.3?t:abCur+(t-abCur)*.6;else abCur+=(t-abCur)*.15;
         applyF()}catch(e){abOK=false;abCur=1;applyF()}}
     abT=setTimeout(abTick,abMode==="f"?60:300)};
