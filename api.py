@@ -1639,6 +1639,20 @@ async def api_progress(request: Request):
     return {"ok": True}
 
 
+@app.post("/api/progress/del")
+async def api_progress_del(request: Request):
+    """History delete: {"sids": ["id1", "id2", ...]} removes those titles from the account's history."""
+    u = await _me(request)
+    if not u:
+        return _err("Please sign in first.", 401)
+    b = await _body(request)
+    sids = b.get("sids")
+    if not isinstance(sids, list) or not sids:
+        return _err("sids is required.")
+    n = await asyncio.to_thread(accounts.del_progress, u["id"], sids)
+    return {"ok": True, "n": n}
+
+
 @app.post("/api/fav")
 async def api_fav(request: Request):
     u = await _me(request)

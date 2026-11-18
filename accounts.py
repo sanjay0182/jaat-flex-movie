@@ -401,6 +401,14 @@ def get_progress(uid):
     return out
 
 
+def del_progress(uid, sids):
+    """History: remove the given titles (list of sid) from this account's watch history."""
+    sids = [str(x)[:60] for x in (sids or []) if x][:100]
+    for sid in sids:
+        q("DELETE FROM progress WHERE user_id=? AND sid=?", (uid, sid))
+    return len(sids)
+
+
 # ---- My List ----
 def set_fav(uid, sid, on, meta=None):
     if on:

@@ -1169,6 +1169,54 @@ html:not(.big) .nav{width:min(252px,calc(100% - 40px))}
 html:not(.big) .nav:has(button:nth-child(4)){width:min(330px,calc(100% - 40px))}
 html:not(.big) .nav button,html:not(.big) .nav button.on{flex:1 1 0;font-size:0;gap:0;padding:11px 0;justify-content:center}
 html:not(.big) .nav button svg{flex:none;width:24px;height:24px}
+
+/* ===== no long-press menus (Download image / Open in new tab) ===== */
+img,.pw,.card,.ep,.sr,.hero,.rail,.top,.nav{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+img{-webkit-user-drag:none;user-drag:none}
+.card img,.pw img,.hero img,.ep img,.sr img,.rail img{pointer-events:none}
+input,textarea,[contenteditable=true]{-webkit-user-select:text;user-select:text}
+/* ===== Library (My List + History) ===== */
+.lib{padding-bottom:calc(var(--nh,70px) + 96px)}
+.lhead{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:18px 0 14px}
+.lhead h1{margin:0;font-size:30px;font-weight:900;letter-spacing:-.8px;background:linear-gradient(90deg,var(--text),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.lhead p{margin:4px 0 0;color:var(--dim);font-size:13px;font-weight:600}
+.edt{border:1px solid var(--line);background:var(--panel);color:var(--text);font-weight:800;font-size:14px;padding:9px 20px;border-radius:999px;transition:background .2s,color .2s,box-shadow .2s}
+.edt.on{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 8px 22px var(--glow)}
+.seg{position:relative;display:grid;grid-template-columns:1fr 1fr;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:4px;margin-bottom:18px}
+.seg .pill{position:absolute;top:4px;bottom:4px;left:4px;width:calc(50% - 4px);border-radius:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 8px 20px var(--glow);transition:transform .32s cubic-bezier(.2,.8,.2,1)}
+.seg[data-t=hist] .pill{transform:translateX(100%)}
+.seg button{position:relative;z-index:1;background:none;border:0;padding:11px 8px;font-weight:800;font-size:14px;color:var(--dim);display:flex;align-items:center;justify-content:center;gap:8px;transition:color .2s}
+.seg button.on{color:#fff}
+.seg em{font-style:normal;font-size:11px;font-weight:800;min-width:20px;padding:2px 7px;border-radius:999px;background:rgba(127,127,127,.22)}
+.seg button.on em{background:rgba(255,255,255,.25)}
+.lnote{display:flex;align-items:center;gap:10px;justify-content:space-between;margin:0 0 14px;padding:11px 14px;border-radius:16px;background:var(--panel);border:1px solid var(--line);font-size:13px;color:var(--dim)}
+.lnote .pri{padding:8px 16px;font-size:13px;box-shadow:none;white-space:nowrap}
+.lib .card{animation:libin .38s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i,0)*35ms);transition:transform .22s,opacity .22s}
+@keyframes libin{from{opacity:0;transform:translateY(14px) scale(.96)}}
+html.lite .lib .card{animation:none}
+.lib .card.rm{opacity:0;transform:scale(.8)}
+.lib .card .pw{border-radius:14px;transition:transform .2s,box-shadow .2s}
+.lib .card .lk{display:none;position:absolute;top:8px;left:8px;z-index:5;width:26px;height:26px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.42);place-items:center;color:#fff;font-size:14px;font-weight:900}
+.lib.ed .card .lk{display:grid}
+.lib .card.sel .lk{background:var(--accent);border-color:var(--accent)}
+.lib .card.sel .lk::after{content:"\2713"}
+.lib.ed .card .pw{transform:scale(.96)}
+.lib .card.sel .pw{transform:scale(.91);box-shadow:0 0 0 3px var(--accent),0 12px 30px var(--glow)}
+.lempty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:54px 24px;border:1.5px dashed var(--line);border-radius:26px;background:linear-gradient(180deg,var(--panel),transparent)}
+.lempty .lic{width:68px;height:68px;border-radius:22px;display:grid;place-items:center;font-size:30px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;box-shadow:0 14px 34px var(--glow);margin-bottom:6px}
+.lempty b{font-size:18px}
+.lempty small{color:var(--dim);font-size:13px;max-width:270px;line-height:1.45}
+.lempty .pri{margin-top:12px}
+.libbar{position:fixed;left:12px;right:12px;bottom:calc(var(--nh,70px) + 12px);z-index:14;max-width:520px;margin:0 auto;display:flex;align-items:center;gap:8px;padding:10px 10px 10px 18px;background:var(--panel);border:1px solid var(--line);border-radius:22px;box-shadow:0 16px 44px var(--glow),var(--shadow);animation:libup .3s cubic-bezier(.2,.8,.2,1)}
+@keyframes libup{from{opacity:0;transform:translateY(20px)}}
+.libbar b{flex:1;font-size:14px}
+.libbar button{border:0;border-radius:14px;padding:11px 16px;font-weight:800;font-size:14px}
+.libbar .ghost{background:var(--panel2);color:var(--text)}
+.libbar .danger{background:#ff453a;color:#fff;box-shadow:0 8px 20px rgba(255,69,58,.35)}
+.libbar .danger:disabled{opacity:.4;box-shadow:none}
+.libtoast{position:fixed;left:50%;bottom:calc(var(--nh,70px) + 24px);transform:translateX(-50%);z-index:40;display:flex;align-items:center;gap:14px;background:rgba(20,18,22,.96);color:#fff;font-weight:700;font-size:14px;padding:10px 12px 10px 18px;border-radius:999px;box-shadow:0 10px 30px rgba(0,0,0,.4);animation:tin .28s cubic-bezier(.2,.8,.2,1);transition:opacity .35s;white-space:nowrap}
+.libtoast.out{opacity:0}
+.libtoast button{background:var(--accent);border:0;color:#fff;font-weight:800;border-radius:999px;padding:7px 14px}
 </style>
 </head>
 <body>
@@ -1542,9 +1590,85 @@ document.getElementById("sbtn").onclick=openSearch;
 document.getElementById("logo").onclick=()=>go("#/");
 
 /* ---------- list ---------- */
-async function listPage(){await meReady;mount(h("h2",{class:"sec"},"My List"),!ME?h("div",{class:"state"},"Sign in to access your list on every device. ",h("button",{class:"pri",style:"margin-top:10px",onclick:authModal},"Sign in")):null,favs.length?h("div",{class:"grid"},favs.map(card)):h("div",{class:"state"},"Your list is empty. Tap “Add to My List” on any title."),
-    ME?(()=>{const hist=PROG.filter(p=>p.slug&&p.sid&&notMid(p));return h("div",{},h("h2",{class:"sec"},"History",h("span",{style:"font-weight:400;font-size:13px;color:var(--dim);margin-left:8px"},hist.length+" titles")),
-      hist.length?h("div",{class:"grid"},hist.map(contCard)):h("div",{class:"state"},"No watch history yet."))})():null)}
+
+/* no long-press menu on images / cards / links (Download image, Open in new tab); typing fields keep theirs */
+(function(){const ok=t=>t&&t.closest&&t.closest("input,textarea,select,[contenteditable=true]");
+  addEventListener("contextmenu",e=>{if(!ok(e.target))e.preventDefault()},true);
+  addEventListener("dragstart",e=>{if(!ok(e.target))e.preventDefault()},true)})();
+/* ---------- My List + History (Library): edit mode, delete, undo ---------- */
+let LIBTAB="list",LIBBAR=null;const LP={f:0};
+function libToast(msg,undo){document.querySelectorAll(".libtoast").forEach(x=>x.remove());
+  const t=h("div",{class:"libtoast"},h("span",{},msg));
+  if(undo)t.append(h("button",{onclick:()=>{t.remove();undo()}},"Undo"));
+  document.body.append(t);setTimeout(()=>{t.classList.add("out");setTimeout(()=>t.remove(),350)},undo?6000:2500)}
+function libPress(c,fn){let t=0,x=0,y=0;const cl=()=>{clearTimeout(t);t=0};
+  c.addEventListener("pointerdown",e=>{if(e.button>0)return;LP.f=0;x=e.clientX;y=e.clientY;cl();t=setTimeout(()=>{t=0;LP.f=1;fn()},480)});
+  c.addEventListener("pointermove",e=>{if(t&&(Math.abs(e.clientX-x)>9||Math.abs(e.clientY-y)>9))cl()});
+  ["pointerup","pointercancel","pointerleave"].forEach(n=>c.addEventListener(n,cl))}
+async function listPage(){await meReady;
+  let edit=false;const sel=new Set();
+  const histOf=()=>PROG.filter(p=>p.slug&&p.sid&&notMid(p)),curItems=()=>LIBTAB==="list"?favs:histOf();
+  const keyOf=x=>String(x.subject_id||x.slug||x.sid);
+  const clearBar=()=>{if(LIBBAR){LIBBAR.remove();LIBBAR=null}};
+  addEventListener("hashchange",clearBar,{once:true});
+  const root=h("div",{class:"lib"}),sub=h("p",{}),
+    edtBtn=h("button",{class:"edt",onclick:()=>setEdit(!edit)},"Edit"),
+    emL=h("em"),emH=h("em"),
+    bL=h("button",{onclick:()=>tabTo("list")},"My List",emL),bH=h("button",{onclick:()=>tabTo("hist")},"History",emH),
+    seg=h("div",{class:"seg"},h("i",{class:"pill"}),bL,bH),
+    bodyBox=h("div",{});
+  root.append(h("div",{class:"lhead"},h("div",{},h("h1",{},"Library"),sub),edtBtn),seg,bodyBox);
+  const tabTo=t=>{if(LIBTAB===t)return;LIBTAB=t;setEdit(false);draw()};
+  function setEdit(v){edit=v;sel.clear();root.classList.toggle("ed",v);root.querySelectorAll(".card.sel").forEach(c=>c.classList.remove("sel"));
+    edtBtn.textContent=v?"Done":"Edit";edtBtn.classList.toggle("on",v);syncBar()}
+  function syncBar(){clearBar();if(!edit)return;
+    const all=curItems().length>0&&sel.size>=curItems().length;
+    const del=h("button",{class:"danger",onclick:remove},"Remove");del.disabled=!sel.size;
+    const bar=h("div",{class:"libbar"},h("b",{},sel.size?sel.size+" selected":"Select titles"),
+      h("button",{class:"ghost",onclick:()=>{if(all)sel.clear();else curItems().forEach(x=>sel.add(LIBTAB==="list"?keyOf(x):String(x.sid)));
+        root.querySelectorAll(".card").forEach(c=>c.classList.toggle("sel",sel.has(c.dataset.k)));syncBar()}},all?"None":"All"),del);
+    document.body.append(bar);LIBBAR=bar}
+  const empty=(ic,t,s2,btn)=>h("div",{class:"lempty"},h("div",{class:"lic"},ic),h("b",{},t),h("small",{},s2),btn||null);
+  const browse=()=>h("button",{class:"pri",onclick:()=>go("#/")},"Browse titles");
+  function after(n,undo){setEdit(false);draw();libToast(n+(n===1?" title removed":" titles removed"),async()=>{await undo();draw()})}
+  async function remove(){const keys=new Set(sel);if(!keys.size)return;
+    root.querySelectorAll(".card.sel").forEach(c=>c.classList.add("rm"));
+    await new Promise(r=>setTimeout(r,230));
+    if(LIBTAB==="list"){
+      const prev=favs.slice(),gone=prev.filter(f=>keys.has(keyOf(f)));
+      favs=prev.filter(f=>!keys.has(keyOf(f)));store.set("mb_favs",JSON.stringify(favs));
+      if(ME)gone.forEach(i=>api("/api/fav",{item:i,on:false}).catch(()=>{}));
+      after(gone.length,()=>{favs=prev;store.set("mb_favs",JSON.stringify(favs));if(ME)gone.slice().reverse().forEach(i=>api("/api/fav",{item:i,on:true}).catch(()=>{}))});
+    }else{
+      const prev=PROG.slice(),gone=prev.filter(p=>keys.has(String(p.sid)));
+      PROG=prev.filter(p=>!keys.has(String(p.sid)));
+      api("/api/progress/del",{sids:gone.map(p=>String(p.sid))}).catch(()=>{PROG=prev;draw();libToast("Could not delete. Try again.")});
+      after(gone.length,async()=>{PROG=prev;for(const p of gone.slice().reverse())await api("/api/progress",p).catch(()=>{})});
+    }}
+  function draw(){clearBar();const hist=histOf(),items=curItems();
+    emL.textContent=favs.length;emH.textContent=hist.length;seg.dataset.t=LIBTAB;
+    bL.classList.toggle("on",LIBTAB==="list");bH.classList.toggle("on",LIBTAB==="hist");
+    sub.textContent=favs.length+" saved \u00b7 "+hist.length+" watched";
+    const can=!!(items.length&&(LIBTAB==="list"||ME));edtBtn.style.display=can?"":"none";
+    const kids=[];
+    if(!ME&&LIBTAB==="list")kids.push(h("div",{class:"lnote"},h("span",{},"Sign in to keep your list on every device."),h("button",{class:"pri",onclick:authModal},"Sign in")));
+    if(LIBTAB==="hist"&&!ME)kids.push(empty("\ud83d\udd12","Sign in to see your history","Your watch history syncs on every device.",h("button",{class:"pri",onclick:authModal},"Sign in")));
+    else if(!items.length)kids.push(LIBTAB==="list"?empty("\uff0b","Your list is empty","Tap \u201cAdd to My List\u201d on any title to save it here.",browse()):empty("\u25b6","No watch history yet","Titles you watch will show up here.",browse()));
+    else{
+      if(LIBTAB==="hist")kids.push(h("div",{class:"lnote"},h("span",{},"Long-press a title to select and delete it.")));
+      kids.push(h("div",{class:"grid"},items.map((x,i)=>{
+        const c=LIBTAB==="list"?card(x):contCard(x),k=LIBTAB==="list"?keyOf(x):String(x.sid),orig=c.onclick;
+        c.dataset.k=k;c.style.setProperty("--i",Math.min(i,14));c.append(h("span",{class:"lk"}));
+        if(sel.has(k))c.classList.add("sel");
+        c.onclick=e=>{if(LP.f){LP.f=0;e.preventDefault();return}
+          if(!edit){if(orig)orig.call(c,e);return}
+          if(sel.has(k)){sel.delete(k);c.classList.remove("sel")}else{sel.add(k);c.classList.add("sel")}syncBar()};
+        libPress(c,()=>{if(!edit){edit=true;sel.clear();root.classList.add("ed");edtBtn.textContent="Done";edtBtn.classList.add("on")}
+          sel.add(k);c.classList.add("sel");syncBar();try{navigator.vibrate&&navigator.vibrate(12)}catch(e){}});
+        return c})));
+    }
+    bodyBox.replaceChildren(...kids);syncBar()}
+  mount(root);draw()}
 function toggleFav(i){const k=favs.findIndex(f=>f.slug===i.slug);const on=k<0;if(k>=0)favs.splice(k,1);else favs.unshift(i);store.set("mb_favs",JSON.stringify(favs));
   if(ME)api("/api/fav",{item:i,on}).catch(()=>{})}
 
