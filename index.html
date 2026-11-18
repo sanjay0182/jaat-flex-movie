@@ -1932,8 +1932,23 @@ async function watch(id,slug,se,ep){
   /* screen fit + TV-style picture modes (remembered per device); both live in the player's settings menu */
   const FITS=[["contain","Fit"],["cover","Fill (crop)"],["fill","Stretch"]];let fitNow=FITS.some(f=>f[0]===store.get("fit"))?store.get("fit"):"contain";video.style.objectFit=fitNow;
   const PICS={standard:["Standard",""],vivid:["Vivid","saturate(1.4) contrast(1.06)"],dynamic:["Dynamic","saturate(1.25) contrast(1.15) brightness(1.06)"],cinema:["Cinema","contrast(1.12) saturate(.92) brightness(.94)"],warm:["Warm / night","sepia(.22) saturate(1.1) brightness(.92)"]};
-  let picNow=PICS[store.get("pic")]?store.get("pic"):"standard";video.style.filter=PICS[picNow][1];
-  const setPic=k=>{picNow=k;video.style.filter=PICS[k][1];store.set("pic",k)};
+  let picNow=PICS[store.get("pic")]?store.get("pic"):"standard";
+  /* Auto brightness: saved globally (key "ab": 0 off = default, f fast, s smooth), so one choice applies to every video */
+  let abMode=["f","s"].includes(store.get("ab"))?store.get("ab"):"0",abCur=1,abOK=true,abT=0;
+  const applyF=()=>{video.style.filter=(PICS[picNow][1]+(abMode!=="0"&&abCur!==1?" brightness("+abCur.toFixed(2)+")":"")).trim()};
+  const setPic=k=>{picNow=k;applyF();store.set("pic",k)};
+  const abCv=document.createElement("canvas");abCv.width=16;abCv.height=9;const abCx=abCv.getContext("2d",{willReadFrequently:true});
+  const abTick=()=>{if(!document.body.contains(video)||abMode==="0"){abT=0;return}
+    if(!video.paused&&video.readyState>=2&&abOK&&video.videoWidth){
+      try{const vw=video.videoWidth,vh=video.videoHeight;abCx.drawImage(video,vw*.1,vh*.2,vw*.8,vh*.6,0,0,16,9);/* centre crop so black bars don't count */
+        const dd=abCx.getImageData(0,0,16,9).data;let sm=0;for(let i=0;i<dd.length;i+=4)sm+=.2126*dd[i]+.7152*dd[i+1]+.0722*dd[i+2];
+        const avg=sm/(dd.length/4)/255,t=Math.min(1.6,Math.max(.9,.45/Math.max(avg,.05)));
+        if(abMode==="f")abCur=Math.abs(t-abCur)>.3?t:abCur+(t-abCur)*.6;else abCur+=(t-abCur)*.15;
+        applyF()}catch(e){abOK=false;abCur=1;applyF()}}
+    abT=setTimeout(abTick,abMode==="f"?60:300)};
+  const abStart=()=>{clearTimeout(abT);abT=0;abOK=true;if(abMode==="0"){abCur=1;applyF();return}abTick()};
+  video.addEventListener("loadstart",()=>{abOK=true});
+  applyF();abStart();
   const langBox=d.dubs.length>1?h("div",{class:"lrow"},d.dubs.map(x=>h("button",{class:"chip","aria-pressed":String(String(x.id)===String(id)),onclick:()=>{if(String(x.id)!==String(id))goR("#/watch/"+x.id+"/"+x.slug+"/"+se+"/"+ep)}},x.lang))):null;
   const cbar=h("div",{class:"cbar"},langBox,h("div",{class:"crow"},h("div",{class:"seekgrp"},sb("−10s",-10),sb("−0.1",-.1),sb("+0.1",.1),sb("+10s",10))),
     h("div",{class:"sub"},"Audio slightly off? Nudge it with the 0.1 buttons."));
@@ -1982,12 +1997,7 @@ async function watch(id,slug,se,ep){
     /* all-channels mix: L R C LFE Ls Rs (Lrs Rrs) -> stereo, nothing dropped */
     [[1,0],[0,1],[.9,.9],[.5,.5],[.8,0],[0,.8],[.8,0],[0,.8]].forEach((w,i)=>{[0,1].forEach(o=>{if(!w[o])return;const g=ctx.createGain();g.gain.value=w[o];sp.connect(g,i);g.connect(ma,0,o)})});
     ma.connect(ag);ag.connect(ctx.destination);
-    /* level meters: peak of every channel (shown in the settings menu, sent once to the server log) */
-    const an=[],pk=[0,0,0,0,0,0],fb=new Float32Array(512);let ticks=0;
-    for(let i=0;i<6;i++){const a=ctx.createAnalyser();a.fftSize=512;sp.connect(a,i);an.push(a)}
-    timers.push(setInterval(()=>{if(video.paused)return;an.forEach((a,i)=>{a.getFloatTimeDomainData(fb);let m=0;for(let k=0;k<fb.length;k++){const v=Math.abs(fb[k]);if(v>m)m=v}if(m>pk[i])pk[i]=m});
-      if(++ticks===75)clog({type:"audio-ch",peaks:pk.map(v=>Math.round(v*100)),mode:VB_MODE(),track:hls&&hls.audioTrack,ntracks:hls&&hls.audioTracks&&hls.audioTracks.length})},200));
-    video.addEventListener("play",()=>{try{ctx.resume()}catch(e){}});AF={ctx,cg,bg:base,ag,pk};return true}catch(e){clog({type:"vb-fail",err:String(e&&e.message)});return false}}
+    video.addEventListener("play",()=>{try{ctx.resume()}catch(e){}});AF={ctx,cg,bg:base,ag};return true}catch(e){clog({type:"vb-fail",err:String(e&&e.message)});return false}}
   const pickAudio=()=>{if(!hls||!hls.audioTracks||hls.audioTracks.length<2)return;
     const L=hls.audioTracks.map(t=>(t.name||"")+" "+(t.lang||"")+" "+(t.groupId||""));clog({type:"audio-tracks",cur:hls.audioTrack,tracks:L.slice(0,8),src:(x_=>x_&&x_.label)(src[cur])});
     const dl=((d.dubs||[]).find(x=>String(x.id)===String(id))||{}).lang||"";
@@ -2050,12 +2060,12 @@ async function watch(id,slug,se,ep){
     if(hls&&hls.audioTracks&&hls.audioTracks.length>1)r.push({label:"Audio track",val:(hls.audioTracks[hls.audioTrack]||{}).name||"",opts:hls.audioTracks.map((t,k)=>({t:t.name||t.lang||"Track "+(k+1),on:hls.audioTrack===k,f:()=>{hls.audioTrack=k}}))});
     else{const na=video.audioTracks;if(na&&na.length>1){const L=[...na];r.push({label:"Audio track",val:(L.find(t=>t.enabled)||{}).label||(L.find(t=>t.enabled)||{}).language||"",opts:L.map((t,k)=>({t:t.label||t.language||"Track "+(k+1),on:!!t.enabled,f:()=>{L.forEach((x,j)=>x.enabled=j===k)}}))})}}
     if((src[cur]&&src[cur].kind==="hls"&&hls)||AF||(src[cur]&&src[cur].kind==="mp4"))r.push({label:"Audio mode (if voices are missing)",val:(!AF&&(src[cur]||{}).kind!=="hls")?"Not active ("+(vbWhy||"checking")+")":{"0":"Normal","1":"Voice boost","2":"All channels"}[VB_MODE()],opts:[["1","Voice boost (default)"],["2","All channels mix"],["0","Normal"]].map(([v,t])=>({t,on:VB_MODE()===v,f:()=>{store.set("vbm",v);if(AF){vbApply();return}if((src[cur]||{}).kind==="hls"){if(vbInit())vbApply();return}tried.clear();play(cur)}}))});
-    if(AF)r.push({label:"Audio levels (peak %)",val:["L","R","C","LFE","Ls","Rs"].map((n,k)=>n+" "+Math.round(AF.pk[k]*100)).join("  "),opts:[]});
     if(d.dubs.length>1)r.push({label:"Language",val:(d.dubs.find(x=>String(x.id)===String(id))||{}).lang||"",opts:d.dubs.map(x=>({t:x.lang,on:String(x.id)===String(id),f:()=>{if(String(x.id)!==String(id))goR("#/watch/"+x.id+"/"+x.slug+"/"+se+"/"+ep)}}))});
     if(caps.length)r.push({label:"Subtitles",val:subIdx<0?"Off":(caps[subIdx]||{}).lang,opts:[{t:"Off",on:subIdx<0,f:()=>setSub(-1)},...caps.map((c,k)=>({t:c.lang,on:subIdx===k,f:()=>setSub(k)}))]});
     else r.push({label:"Subtitles",val:"Not available",opts:[]});
     r.push({label:"Screen",val:(FITS.find(f=>f[0]===fitNow)||FITS[0])[1],opts:FITS.map(([v,l])=>({t:l,on:v===fitNow,f:()=>{fitNow=v;video.style.objectFit=v;store.set("fit",v)}}))});
     r.push({label:"Picture mode",val:PICS[picNow][0],opts:Object.keys(PICS).map(k=>({t:PICS[k][0],on:k===picNow,f:()=>{setPic(k)}}))});
+    r.push({label:"Auto brightness",val:abMode==="0"?"Off":!abOK?"Not available for this video":abMode==="f"?"Fast":"Smooth",opts:[["0","Off"],["f","Fast"],["s","Smooth"]].map(([v,t])=>({t,on:abMode===v,f:()=>{abMode=v;store.set("ab",v);abStart()}}))});
     if(d.series)r.push({label:"Autoplay next",tog:{on:auto.checked,f:()=>{auto.checked=!auto.checked;store.set("auto",auto.checked?"1":"0")}}});
     return r};
   playerUI(box,video,{show:d.title,sub:()=>title,hasPrev:()=>!!prevBtn,prev:()=>prevBtn&&prevBtn.click(),hasNext:()=>!!next,next:()=>next&&goR(nUrl(next)),vids:()=>allVids,sn:se,en:ep,slug,rows,skipCands:()=>[],autoNext:()=>auto.checked,epUrl:(s2,e2)=>nUrl([s2,e2])});
