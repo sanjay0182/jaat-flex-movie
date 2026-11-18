@@ -1164,6 +1164,11 @@ html.pfs header,html.pfs .nav{display:none!important}
 .pind.on::after{animation:pring .7s ease-out}
 .pind.t.on::after{animation:pring 1s ease-out infinite}
 @keyframes pring{0%{opacity:.8;transform:scale(1)}100%{opacity:0;transform:scale(1.45)}}
+/* --- nav: icon never shrinks, selected tab gets room for its name --- */
+html:not(.big) .nav{width:min(252px,calc(100% - 40px))}
+html:not(.big) .nav:has(button:nth-child(4)){width:min(330px,calc(100% - 40px))}
+html:not(.big) .nav button,html:not(.big) .nav button.on{flex:1 1 0;font-size:0;gap:0;padding:11px 0;justify-content:center}
+html:not(.big) .nav button svg{flex:none;width:24px;height:24px}
 </style>
 </head>
 <body>
@@ -1281,7 +1286,7 @@ function drawNav(){const cur=location.hash.replace(/^#\/?/,"").split("/")[0];
   const it=[["home","home","Home","#/"],...(midOn()?[["midnight","mid","Midnight","#/midnight"]]:[]),["list","list","My List","#/list"],["account","acct","Account","#/account"]];
   const isOn=k=>(k==="home"&&!["list","show","watch","discover","midnight","account"].includes(cur))||k===cur,key=it.map(x=>x[0]).join();
   if($nav.dataset.k!==key){$nav.dataset.k=key;
-    $nav.replaceChildren(...it.map(([k,ic,l,t])=>{const b=h("button",{class:isOn(k)?"on":"",onclick:()=>{const n=location.hash||"#/";if(n===t||(t==="#/"&&(n==="#"||n==="#/"))){scrollTo({top:0,left:0,behavior:"smooth"});return}go(t)}},l);b.dataset.k=k;b.insertAdjacentHTML("afterbegin",'<svg viewBox="0 0 24 24">'+IC[ic]+"</svg>");return b}))}
+    $nav.replaceChildren(...it.map(([k,ic,l,t])=>{const b=h("button",{"aria-label":l,class:isOn(k)?"on":"",onclick:()=>{const n=location.hash||"#/";if(n===t||(t==="#/"&&(n==="#"||n==="#/"))){scrollTo({top:0,left:0,behavior:"smooth"});return}go(t)}},l);b.dataset.k=k;b.insertAdjacentHTML("afterbegin",'<svg viewBox="0 0 24 24">'+IC[ic]+"</svg>");return b}))}
   else $nav.querySelectorAll("button").forEach(b=>b.classList.toggle("on",isOn(b.dataset.k)))}
 
 /* ---------- cards ---------- */
@@ -1506,6 +1511,9 @@ const getRecent=()=>{try{return JSON.parse(store.get(RKEY)||"[]")}catch(e){retur
 const setRecent=a=>store.set(RKEY,JSON.stringify(a.slice(0,8)));
 function addRecent(t){t=(t||"").trim();if(t.length<2)return;setRecent([t,...getRecent().filter(x=>x.toLowerCase()!==t.toLowerCase())])}
 function hiName(name,term){const i=name.toLowerCase().indexOf(term);if(i<0||!term)return name;return[name.slice(0,i),h("mark",{},name.slice(i,i+term.length)),name.slice(i+term.length)]}
+const MC={t:0,items:null};
+async function midItems(){if(!midOn()||store.get("jf_18")!=="1")return[];if(MC.items&&Date.now()-MC.t<600000)return MC.items;
+  try{const R=await api("/midnight"),seen=new Set(),out=[];(R.sections||[]).forEach(sc=>{if(sc.section==="Banner")return;(sc.items||[]).forEach(i=>{if(i&&i.slug&&!seen.has(i.slug)){seen.add(i.slug);out.push(i)}})});markMid(out);MC.items=out;MC.t=Date.now();return out}catch(e){return[]}}
 const subOf=i=>[KINDL[kindOf(i,"")]||"Movie",i.year,(i.genre||"").split(",")[0].trim(),i.rating?"\u2605 "+i.rating:""].filter(Boolean).join(" \u00b7 ");
 const trendItems=async()=>{try{const P=await pool(),R=HC[""]||{},sec=(R.sections||[]).find(x=>x.section!=="Banner"&&isTop(x));return(sec?sec.items:P).filter(i=>i&&i.slug).slice(0,12)}catch(e){return[]}};
 function openSearch(){if(document.querySelector(".so"))return;
@@ -1514,7 +1522,7 @@ function openSearch(){if(document.querySelector(".so"))return;
   const close=()=>{ov.remove();document.removeEventListener("keydown",esc);if(!closed){closed=true;root.classList.remove("lock")}};
   const esc=e=>{if(e.key==="Escape")close()};document.addEventListener("keydown",esc);
   const ov=h("div",{class:"so"},h("div",{class:"sobar"},inp,h("button",{class:"socancel",onclick:close},"Cancel")),body);
-  const row=(i,term,rank)=>h("button",{class:"sr",onclick:()=>{addRecent(term||cleanName(i.name));close();open(i)}},rank?h("span",{class:"rk"},String(rank)):null,h("div",{class:"th"},posterEl(i)),h("div",{style:"min-width:0"},h("b",{},hiName(cleanName(i.name),term)),h("small",{},subOf(i))));
+  const row=(i,term,rank)=>h("button",{class:"sr",onclick:()=>{addRecent(term||cleanName(i.name));close();open(i)}},rank?h("span",{class:"rk"},String(rank)):null,h("div",{class:"th"},posterEl(i)),h("div",{style:"min-width:0"},h("b",{},hiName(cleanName(i.name),term)),h("small",{},subOf(i)+(i.__mid?" \u00b7 18+":""))));
   function draw(){body.replaceChildren();const rc=getRecent();
     if(rc.length)body.append(h("div",{class:"sohd"},"Recent searches",h("button",{onclick:()=>{setRecent([]);draw()}},"Clear")),
       h("div",{class:"rec"},rc.map(t=>h("span",{class:"chip"},h("span",{onclick:()=>{inp.value=t;run()}},t),h("i",{onclick:()=>{setRecent(getRecent().filter(x=>x!==t));draw()}},"\u2715")))));
@@ -1522,7 +1530,8 @@ function openSearch(){if(document.querySelector(".so"))return;
     trendItems().then(L=>{if(!slot.isConnected||inp.value.trim())return;slot.replaceChildren(...L.map((i,k)=>row(i,"",k+1)))})}
   async function run(){const q=inp.value.trim(),term=q.toLowerCase();if(!q){seq++;draw();return}
     const my=++seq;body.replaceChildren(h("div",{class:"state"},"Searching\u2026"));
-    try{const j=await api("/search?q="+encodeURIComponent(q));if(my!==seq)return;const it=(j.items||[]).filter(i=>i&&i.slug);
+    try{const [j,mi]=await Promise.all([api("/search?q="+encodeURIComponent(q)),midItems()]);if(my!==seq)return;const base=(j.items||[]).filter(i=>i&&i.slug),have=new Set(base.map(i=>i.slug)),ws=term.split(/\s+/).filter(Boolean);
+      const mm=mi.filter(i=>!have.has(i.slug)&&(()=>{const nm=(String(i.name||"")+" "+cleanName(i.name||"")).toLowerCase();return ws.every(w=>nm.includes(w))})()).map(i=>({...i,__mid:1}));const it=[...base,...mm];
       body.replaceChildren(...(it.length?[h("div",{class:"sohd"},it.length+(it.length===1?" result":" results")),...it.slice(0,40).map(i=>row(i,term))]:[h("p",{class:"muted",style:"text-align:center;margin-top:40px"},"No results for \u201c"+q+"\u201d")]))}
     catch(e){if(my===seq)body.replaceChildren(h("div",{class:"state"},"Search failed. Please try again."))}}
   inp.oninput=()=>{clearTimeout(dt);if(!inp.value.trim()){seq++;draw();return}dt=setTimeout(run,300)};
@@ -1772,7 +1781,7 @@ async function watch(id,slug,se,ep){
   $app.classList.add("w");
   se=+se;ep=+ep;let d;try{d=await getDet(slug)}catch(e){d={title:slug,series:se>0,seasons:[],dubs:[]}}
   const video=h("video",{playsinline:true,autoplay:true,preload:"auto"}),buf=h("div",{class:"buf"},"Buffering…"),
-    msg=h("div",{class:"msg"},"Finding stream… this may take 10–20 seconds."),box=h("div",{class:"player"},video,buf,msg);dtap(box,video);video.setAttribute("controlsList","nodownload noremoteplayback");box.addEventListener("contextmenu",e=>e.preventDefault());if(d.short)box.classList.add("tall");video.addEventListener("loadedmetadata",()=>{if(video.videoWidth)box.classList.toggle("tall",video.videoWidth/(video.videoHeight||1)<.9)});
+    msg=h("div",{class:"msg"},"Finding stream… this may take 10–20 seconds."),box=h("div",{class:"player"},video,buf,msg);if(document.documentElement.classList.contains("pfs"))box.classList.add("fs");dtap(box,video);video.setAttribute("controlsList","nodownload noremoteplayback");box.addEventListener("contextmenu",e=>e.preventDefault());if(d.short)box.classList.add("tall");video.addEventListener("loadedmetadata",()=>{if(video.videoWidth)box.classList.toggle("tall",video.videoWidth/(video.videoHeight||1)<.9)});
   const title=d.title+(d.series?" · S"+se+" E"+ep:"");
   let next=null;if(d.series){const s=d.seasons.find(x=>x.se===se);if(s&&ep<s.n)next=[se,ep+1];else{const ns=d.seasons.find(x=>x.se>se);if(ns)next=[ns.se,1]}}
   const nUrl=n=>"#/watch/"+id+"/"+slug+"/"+n[0]+"/"+n[1];
@@ -1853,7 +1862,22 @@ async function watch(id,slug,se,ep){
     if(/hindi/i.test(dl))k=L.findIndex(t=>/hindi|\bhi\b|\bhin\b/i.test(t)&&!ME(t));
     if(k<0&&ME(L[hls.audioTrack]||""))k=L.findIndex(t=>!ME(t));
     if(k>=0&&k!==hls.audioTrack)hls.audioTrack=k};
-  function play(i){const t0=video.currentTime;if(t0>10&&isFinite(t0))resume=t0;cur=i;tried.add(i);if(hls){hls.destroy();hls=null}qSel=-1;msg.style.display="flex";msg.textContent="Loading…";
+  /* crash safety: remember the last good time (after an error the video element reads 0:00), reconnect at that time, refresh the links once, and unfreeze a stuck player */
+  let lastT=0,rc=0,okAt=0,fresh=0,wdT=0,wdN=0;
+  video.addEventListener("timeupdate",()=>{const t=video.currentTime;if(t>5&&isFinite(t)&&!video.seeking)lastT=t});
+  video.addEventListener("playing",()=>{okAt=Date.now()});
+  const reconnect=async why=>{clog({type:"reconnect",why,t:Math.round(lastT)});if(Date.now()-okAt>25000)rc=0;
+    if(rc<2){rc++;msg.style.display="flex";msg.textContent="Reconnecting...";const k=cur;setTimeout(()=>{if(cur===k){tried.clear();play(k)}},700*rc);return true}
+    if(!fresh){fresh=1;try{msg.style.display="flex";msg.textContent="Refreshing stream...";const nd=await streamApi(id,slug,d.series?se:0,d.series?ep:0);
+      if(nd&&nd.sources&&nd.sources.length){src.splice(0,src.length,...nd.sources);tried.clear();play(Math.min(cur,src.length-1));setTimeout(()=>{fresh=0},60000);return true}}catch(e){}fresh=0}
+    return false};
+  timers.push(setInterval(()=>{if(video.paused||video.ended||video.seeking||!video.duration||msg.style.display==="flex"){wdN=0;wdT=video.currentTime;return}
+    const t=video.currentTime;if(Math.abs(t-wdT)<.05){wdN++;
+      if(wdN===4){let nx=-1;try{const b=video.buffered;for(let i=0;i<b.length;i++)if(b.start(i)>t&&b.start(i)-t<10){nx=b.start(i);break}}catch(e){}
+        if(nx>=0)video.currentTime=nx+.05;else if(hls)hls.startLoad(t)}
+      else if(wdN>=10){wdN=0;if(lastT>10)reconnect("frozen")}}
+    else{wdN=0;wdT=t}},2000));
+  function play(i){const t0=(video.currentTime>5&&isFinite(video.currentTime))?video.currentTime:lastT;if(t0>10&&isFinite(t0))resume=t0;cur=i;tried.add(i);if(hls){hls.destroy();hls=null}qSel=-1;msg.style.display="flex";msg.textContent="Loading…";
     const x=src[i],hide=()=>{msg.style.display="none";buf.style.display="none"};
     const bad=t=>{msg.style.display="flex";msg.replaceChildren(h("div",{style:"font-size:12px;word-break:break-all;padding:0 8px;max-height:130px;overflow:auto"},t||"This stream failed to load.",h("div",{style:"margin-top:12px"},h("button",{class:"chip",onclick:()=>{tried.clear();play(cur)}},"↻ Retry"))))};
     const fb=()=>{let n=src.findIndex((s,j)=>!tried.has(j)&&s.backup&&!x.backup&&s.kind===x.kind&&s.res===x.res);if(n<0)n=src.findIndex((_,j)=>!tried.has(j));if(n<0)return false;msg.textContent="Trying another source…";play(n);return true};
@@ -1861,22 +1885,22 @@ async function watch(id,slug,se,ep){
     video.onwaiting=()=>{if(msg.style.display!=="flex")buf.style.display="block"};
     video.onseeked=()=>{if(video.readyState>=3)buf.style.display="none"};
     video.onloadedmetadata=()=>{if(resume>10){video.currentTime=resume;resume=0}};
-    video.onerror=()=>{if(!hls&&!fb()){const ve=video.error,u=String(x.url||""),base="Video error "+(ve?ve.code+(ve.message?" ("+ve.message+")":""):"?")+" · "+(x.kind||"")+" "+(x.label||"");
+    video.onerror=async()=>{if(hls)return;if(lastT>10&&await reconnect("mp4 "+(video.error?video.error.code:"?")))return;if(!fb()){const ve=video.error,u=String(x.url||""),base="Video error "+(ve?ve.code+(ve.message?" ("+ve.message+")":""):"?")+" · "+(x.kind||"")+" "+(x.label||"");
       bad(base);
       /* the details go to the server log (not the screen): look for [CLIENT-ERR] in the blitz logs */
       if(!u){clog({type:"empty-src",base,kind:x.kind,label:x.label});return}
       fetch(u,{headers:{Range:"bytes=0-15",...(x.kind==="hls"?{"X-Device":DID}:{})}}).then(async r=>{const ab=new Uint8Array(await r.arrayBuffer()),hx=[...ab.slice(0,16)].map(n=>n.toString(16).padStart(2,"0")).join(" ");
         clog({type:"src-check",base,status:r.status,ctype:r.headers.get("content-type"),range:r.headers.get("content-range"),tries:r.headers.get("x-jf-tries"),bytes:hx,body:r.status>=400?new TextDecoder().decode(ab.slice(0,900)):"",len:u.length,url:u.slice(0,40)})}).catch(e=>clog({type:"src-fetch-failed",base,err:String(e&&e.message),len:u.length,url:u.slice(0,700)}))}};
-    if(x.kind==="hls"&&window.Hls&&Hls.isSupported()){let nt=0,mt=0;
-      hls=new Hls({xhrSetup:(x,u)=>{try{if(/\/p\?/.test(u))x.setRequestHeader("X-Device",DID)}catch(e){}},maxBufferLength:30,capLevelToPlayerSize:true,startFragPrefetch:true,manifestLoadingMaxRetry:3,fragLoadingMaxRetry:4});
+    if(x.kind==="hls"&&window.Hls&&Hls.isSupported()){let nt=0,mt=0,mtT=0;
+      hls=new Hls({xhrSetup:(x,u)=>{try{if(/\/p\?/.test(u))x.setRequestHeader("X-Device",DID)}catch(e){}},maxBufferLength:30,backBufferLength:60,capLevelToPlayerSize:true,startFragPrefetch:true,manifestLoadingMaxRetry:3,fragLoadingMaxRetry:4});
       hls.loadSource(x.url);hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED,()=>{video.play().catch(hide);if(VB_ON()&&vbInit())vbApply()});
       hls.on(Hls.Events.AUDIO_TRACKS_UPDATED,pickAudio);
       hls.on(Hls.Events.FRAG_BUFFERED,()=>{nt=0});
       hls.on(Hls.Events.ERROR,(_e,er)=>{if(!er.fatal){if(/audio/i.test(String(er.details))&&!window.__aerr){window.__aerr=1;clog({type:"hls-audio-err",d:er.details,code:er.response&&er.response.code})}return}clog({type:"hls",t:er.type,d:er.details,code:er.response&&er.response.code,url:String(er.url||"").slice(0,500)});
         if(er.type===Hls.ErrorTypes.NETWORK_ERROR&&x.url.indexOf("/p?")>=0&&nt++<3){buf.style.display="block";setTimeout(()=>hls&&hls.startLoad(video.currentTime||-1),1500*nt)}
-        else if(er.type===Hls.ErrorTypes.MEDIA_ERROR&&mt++<3)hls.recoverMediaError();
-        else if(!fb())bad("Stream failed: "+er.type+" / "+er.details+(er.response&&er.response.code?" / HTTP "+er.response.code:""))})}
+        else if(er.type===Hls.ErrorTypes.MEDIA_ERROR&&(((Date.now()-mtT>60000)&&(mt=0)),(mtT=Date.now()),mt++<3)){if(mt===2)hls.swapAudioCodec();hls.recoverMediaError()}
+        else{const fail=()=>{if(!fb())bad("Stream failed: "+er.type+" / "+er.details+(er.response&&er.response.code?" / HTTP "+er.response.code:""))};if(lastT>10)reconnect("hls "+er.details).then(ok=>{if(!ok)fail()});else fail()}})}
     else{const run=()=>{video.src=x.url;video.play().catch(hide)},AC=window.AudioContext||window.webkitAudioContext;
       /* MP4: Web Audio needs a CORS-readable source. Probe first; only when it passes is the audio mixer used, otherwise the video plays exactly as before. */
       if(AC&&x.kind!=="hls"&&x.url&&(VB_ON()||AF)){
@@ -1992,6 +2016,7 @@ async function reels(slug,id){
     else if(k===" "){const v=(slides[active]||{}).v;if(v){v.paused?v.play():v.pause();e.preventDefault()}}
     else if(k==="m"||k==="M")muteBtn.click();else if(k==="Escape")closeBtn.click()};
   document.addEventListener("keydown",kd)}
+(()=>{const gone=()=>{if(document.fullscreenElement||document.webkitFullscreenElement)return;document.documentElement.classList.remove("pfs");document.querySelectorAll(".player.fs").forEach(b=>b.classList.remove("fs"))};document.addEventListener("fullscreenchange",gone);document.addEventListener("webkitfullscreenchange",gone)})();
 function leaveFs(){const d=document,de=d.documentElement;if(de.classList.contains("pfs")||d.fullscreenElement===de||d.webkitFullscreenElement===de){de.classList.remove("pfs");try{const r=(d.exitFullscreen||d.webkitExitFullscreen||function(){}).call(d);if(r&&r.catch)r.catch(()=>{})}catch(e){}try{screen.orientation.unlock()}catch(e){}}}
 function route(){if(!/^#\/?watch\//.test(location.hash))leaveFs();if(window.__splashHide)setTimeout(window.__splashHide,300);kill();$app.classList.remove("w");const p=location.hash.replace(/^#\/?/,"").split("/").filter(Boolean).map(decodeURIComponent);drawNav();scrollTo({top:0,left:0,behavior:"instant"});
   if(p[0]==="reels"){try{history.replaceState(null,"","#/show/"+encodeURIComponent(p[1]||"")+"/"+encodeURIComponent(p[2]||""))}catch(e){}return show(p[1],p[2])}if(p[0]==="show")return show(p[1],p[2]);if(p[0]==="watch")return watch(p[1],p[2],p[3]||0,p[4]||0);if(p[0]==="list")return listPage();if(p[0]==="account")return accountPage();if(p[0]==="midnight")return midnightPage();if(p[0]==="all")return allPage(p[1]);if(p[0]==="browse")return browsePage(p[1]);home()}
