@@ -555,7 +555,7 @@ async def filter_list(query: str, page: int = 1, per: int = 24):
         ft = {}
     tab = prm.get("tabId", "")
     # The web API numbers its channels 1 = movies, 2 = TV, 4 = anime; the "Categories" widget uses the app's ids (2 / 5 / 8).
-    chan = {"2": "1", "5": "2", "8": "4"}.get(tab, tab)
+    chan = {"2": "1", "5": "2", "8": ANIME_CH}.get(tab, tab)
     # Verified by testing the real API: /subject/filter takes channelId + genre/country/year/sort/classify.
     # Language = classify ("Hindi dub" etc.); a separate `language` field is ignored.
     # total=1000000 is MovieBox's normal total, NOT junk, so no sentinel filtering is done.
@@ -746,7 +746,8 @@ async def raw(p: str):
 
 # ===== Content-type endpoints (modelled on the real MovieBox site: TV show / Movie / Animation / Most Watched / ...) =====
 # Filter values below are copied from the real site's /web/film and /web/tv-series filter panels.
-TYPES = {"movie": "1", "tv": "2", "anime": "4"}  # web API channelId (verified earlier by the phone test)
+ANIME_CH = "1006"  # real Anime channel of the website (/web/animated-series filter panel: channelId 1006 "Anime"; filters = country, year, sort only)
+TYPES = {"movie": "1", "tv": "2", "anime": ANIME_CH}  # web API channelId (verified earlier by the phone test)
 FILTERS = {
     "genre": ["All", "Action", "Adventure", "Animation", "Biography", "Comedy", "Crime", "Documentary", "Drama", "Family", "Fantasy", "Film-Noir", "Game-Show", "History", "Horror", "Music", "Musical", "Mystery", "News", "Reality-TV", "Romance", "Sci-Fi", "Short", "Sport", "Talk-Show", "Thriller", "War", "Western", "Other"],
     "country": ["All", "United States", "United Kingdom", "Korea", "Japan", "Bangladesh", "China", "Egypt", "France", "Germany", "India", "Indonesia", "Iraq", "Italy", "Ivory Coast", "Kenya", "Lebanon", "Mexico", "Morocco", "Nigeria", "Pakistan", "Philippines", "Russia", "Saudi Arabia", "South Africa", "Spain", "Syria", "Thailand", "Malaysia", "Turkey", "Other"],
@@ -771,14 +772,18 @@ async def browse(type: str = "movie", genre: str = "All", country: str = "All", 
     ch = TYPES.get(type)
     if not ch:
         return JSONResponse({"error": "type must be one of " + ", ".join(TYPES)}, status_code=400)
-    if type == "anime":  # channel 4 is not anime (phone test); anime = series channel + Japan
-        ch = "2"
-        if country == "All":
-            country = "Japan"
+    o_genre, o_lang = genre, language
+    if type == "anime":  # real anime channel 1006 has only country / year / sort filters
+        genre, language = "All", "All"
     body = {"channelId": ch, "page": page, "perPage": per, "genre": genre, "country": country,
             "year": year, "sort": sort, "classify": language}
     d = await call(f"{API}/subject/filter", body)
-    return {"type": type, "items": _extract(d), "page": page, "pager": (d.get("data") or {}).get("pager"),
+    its = _extract(d)
+    if type == "anime" and not its:  # fallback = old way: series channel + Japan
+        body.update({"channelId": "2", "country": country if country != "All" else "Japan", "genre": o_genre, "classify": o_lang})
+        d = await call(f"{API}/subject/filter", body)
+        its = _extract(d)
+    return {"type": type, "items": its, "page": page, "pager": (d.get("data") or {}).get("pager"),
             "_debug": d.get("_http") or d.get("_err")}
 
 
@@ -806,7 +811,9 @@ async def _frow(title, ch, **kw):
     body.update(kw)
     d = await call(f"{API}/subject/filter", body)
     its = _extract(d)
-    q = "type=/home/movieFilter&tabId=%s&filterType=%s" % ({"1": "2", "2": "5", "4": "8"}[ch], json.dumps(
+    if ch == ANIME_CH:  # anime channel also holds music videos (subjectType 6, "Anime OST") - not wanted in rows
+        its = [i for i in its if i.get("type") != 6]
+    q = "type=/home/movieFilter&tabId=%s&filterType=%s" % ({"1": "2", "2": "5", "4": "8"}.get(ch, ch), json.dumps(
         {"classify": body["classify"], "country": body["country"], "genre": body["genre"], "sort": body["sort"], "year": body["year"]}))
     return {"section": title, "items": its, "more": {"query": q}, "tabs": None, "kind": None, "query": q}
 
@@ -821,9 +828,7 @@ _TAB_ROWS = {
            ("Crime", "2", {"genre": "Crime", "sort": "Hottest"}), ("Romance", "2", {"genre": "Romance", "sort": "Hottest"}),
            ("Comedy", "2", {"genre": "Comedy", "sort": "Hottest"}), ("Thriller", "2", {"genre": "Thriller", "sort": "Hottest"}),
            ("Sci-Fi", "2", {"genre": "Sci-Fi", "sort": "Hottest"})],
-    "anime": [("Hottest Anime", "2", {"country": "Japan", "sort": "Hottest"}),
-              ("Hindi Dubbed Anime", "2", {"country": "Japan", "classify": "Hindi dub", "sort": "Hottest"}),
-              ("Latest Anime", "2", {"country": "Japan", "sort": "Latest"}),
+    "anime": [("Hindi Dubbed Anime", "2", {"country": "Japan", "classify": "Hindi dub", "sort": "Hottest"}),
               ("Anime Movies", "1", {"country": "Japan", "sort": "Hottest"}),
               ("Hindi Dubbed Anime Movies", "1", {"country": "Japan", "classify": "Hindi dub"}),
               ("Animation (Cartoons)", "2", {"genre": "Animation", "sort": "Hottest"}),
@@ -833,6 +838,17 @@ _TAB_ROWS = {
               ("Anime Romance", "2", {"country": "Japan", "genre": "Romance", "sort": "Hottest"}),
               ("Anime Fantasy", "2", {"country": "Japan", "genre": "Fantasy", "sort": "Hottest"})],
 }
+# Anime rows from the real anime channel 1006 (series + movies + cartoons together, like /web/animated-series)
+_ANIME_ROWS = [("Hottest Anime", ANIME_CH, {"sort": "Hottest"}), ("Latest Anime", ANIME_CH, {"sort": "Latest"}),
+               ("Japanese Anime", ANIME_CH, {"country": "Japan", "sort": "Hottest"}),
+               ("Chinese Animation", ANIME_CH, {"country": "China", "sort": "Hottest"}),
+               ("Korean Animation", ANIME_CH, {"country": "Korea", "sort": "Hottest"}),
+               ("Western Animation", ANIME_CH, {"country": "United States", "sort": "Hottest"}),
+               ("Anime 2026", ANIME_CH, {"year": "2026", "sort": "Hottest"}),
+               ("Anime 2025", ANIME_CH, {"year": "2025", "sort": "Hottest"}),
+               ("Classic Anime (2000s)", ANIME_CH, {"year": "2000s", "sort": "Hottest"})]
+_ANIME_FALLBACK = [("Hottest Anime", "2", {"country": "Japan", "sort": "Hottest"}),
+                   ("Latest Anime", "2", {"country": "Japan", "sort": "Latest"})]
 _TAB_HOME_ROWS = {"tv": re.compile(r"series|drama|tv|show", re.I), "anime": re.compile(r"anime|animation", re.I)}
 
 
@@ -861,8 +877,12 @@ async def tab_page(name: str):
             res = await asyncio.gather(*[_frow(t, "1", **kw) for t, kw in [("Hottest Movies", {"sort": "Hottest"}), ("Hindi Dubbed Movies", {"classify": "Hindi dub"}), ("Latest Releases", {"sort": "Latest"})]])
             secs = [r for r in res if r["items"]]
     else:
-        res = await asyncio.gather(*[_frow(t, ch, **kw) for t, ch, kw in _TAB_ROWS[name]])
+        rows = (_ANIME_ROWS + _TAB_ROWS[name]) if name == "anime" else _TAB_ROWS[name]
+        res = await asyncio.gather(*[_frow(t, ch, **kw) for t, ch, kw in rows])
         secs = [r for r in res if r["items"]]
+        if name == "anime" and not any(r["items"] for r in res[:len(_ANIME_ROWS)]):  # channel 1006 gave nothing -> old Japan rows
+            fb = await asyncio.gather(*[_frow(t, ch, **kw) for t, ch, kw in _ANIME_FALLBACK])
+            secs = [r for r in fb if r["items"]] + secs
         h = await call(_home_url())   # plus the matching rows of MovieBox's own home (Top Anime, Best Asian Series, Western TV ...)
         extra = [s_ for s_ in _sections(h) if s_.get("kind") != "filter" and s_["section"] != "Banner" and s_["items"]
                  and _TAB_HOME_ROWS[name].search(str(s_["section"])) and "short" not in str(s_["section"]).lower()]
