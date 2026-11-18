@@ -1218,6 +1218,9 @@ html.lite .lib .card{animation:none}
 .libtoast.out{opacity:0}
 .libtoast button{background:var(--accent);border:0;color:#fff;font-weight:800;border-radius:999px;padding:7px 14px}
 .lib .card,.lib .card .t{background:none!important;box-shadow:none!important}
+/* wide (landscape) art fills the whole 2:3 card too - no blurred empty area under it */
+.rail .card .pw.ls .bgb,.grid .card .pw.ls .bgb{display:none}
+.rail .card .pw.ls .poster,.grid .card .pw.ls .poster{object-fit:cover;object-position:center 30%}
 </style>
 </head>
 <body>
@@ -1390,6 +1393,12 @@ const saveComing=()=>{try{store.set("jf_coming2",JSON.stringify(Object.fromEntri
 const unmarkComing=slug=>{if(COMING.delete(slug))saveComing()};
 const isSoon=(slug,d)=>{const t0=COMING.get(slug);if(!t0)return false;if(Date.now()-t0>COMING_TTL){unmarkComing(slug);return false}return true};
 /* items = what the source lists now. full=true: the whole list (titles missing from it are released); full=false: one more page of it */
+const RELEASED=new Set();
+/* a title that is already in Trending / Cinema / any normal row is out now, so it must not stay in "Coming soon" */
+const dropReleased=secs=>{RELEASED.clear();
+  (secs||[]).forEach(s=>{if(s&&s.kind!=="filter"&&!COMINGRE.test(s.section||""))(s.items||[]).forEach(i=>{if(i&&i.slug)RELEASED.add(i.slug)})});
+  RELEASED.forEach(sl=>unmarkComing(sl));
+  return(secs||[]).map(s=>COMINGRE.test((s&&s.section)||"")&&s.items?Object.assign({},s,{items:s.items.filter(i=>!(i&&RELEASED.has(i.slug)))}):s)};
 const markComing=(items,sec,full)=>{const cur=(items||[]).map(i=>i&&i.slug).filter(Boolean),now=Date.now();
   if(sec){const prev=COMINGBY[sec]||[];const keep=new Set(cur);if(full)prev.forEach(sl=>{if(!keep.has(sl)){let other=false;for(const k in COMINGBY)if(k!==sec&&COMINGBY[k].indexOf(sl)>=0)other=true;if(!other)COMING.delete(sl)}});COMINGBY[sec]=full?cur:[...new Set(prev.concat(cur))]}
   cur.forEach(sl=>COMING.set(sl,now));saveComing()};
@@ -1438,7 +1447,7 @@ async function allPage(raw){let m={};try{m=JSON.parse(raw)}catch(e){}
   const strip=tabs.length?h("div",{class:"cats sub"}):null;
   mount(h("button",{class:"back",onclick:goBack},"← Back"),h("h2",{class:"sec"},cleanT(m.title)||"All"),strip,grid,st,btn);
   const STEP=20;let buf=[];
-  const fetchPage=async()=>{const j=await api(cur.query?browseUrl(cur.query,page):"/more?id="+encodeURIComponent(cur.id)+"&url="+encodeURIComponent(cur.url)+"&title="+encodeURIComponent(cur.title)+"&page="+page);const it=j.items||[];if(MIDALLT&&MIDALLT===m.title)markMid(it);return it};
+  const fetchPage=async()=>{const j=await api(cur.query?browseUrl(cur.query,page):"/more?id="+encodeURIComponent(cur.id)+"&url="+encodeURIComponent(cur.url)+"&title="+encodeURIComponent(cur.title)+"&page="+page);let it=j.items||[];if(COMINGRE.test(cur.title||m.title||""))it=it.filter(x=>!(x&&RELEASED.has(x.slug)));if(MIDALLT&&MIDALLT===m.title)markMid(it);return it};
   const load=async()=>{if(busy)return;busy=true;btn.style.display="none";const g=gen;
     try{
       /* keep a small buffer; show exactly 10 per tap */
@@ -1495,7 +1504,7 @@ const probe=u=>new Promise(res=>{if(!u||LC[u]!==undefined)return res();const im=
 async function home(){
   $app.replaceChildren(h("div",{class:"hero sk"}),...skRail(),...skRail());
   const TK=isTab(CAT);let R;try{R=TK?(HC["tab:"+CAT]||(HC["tab:"+CAT]=await api("/tab/"+CAT))):(HC[TAB]||(HC[TAB]=await api("/home"+(TAB?"?tab="+encodeURIComponent(TAB):""))))}catch(e){$app.replaceChildren(errState("Can\u2019t connect","Check your internet and try again."));return}
-  if(!TABS.length&&!TK)TABS=R.tabs||[];const HOME=R.sections||[];
+  if(!TABS.length&&!TK)TABS=R.tabs||[];const HOME=dropReleased(R.sections||[]);
   const ban=(HOME.find(s=>s.section==="Banner")||{items:[]}).items.slice(0,5);
   const rest=HOME.filter(s=>s.section!=="Banner"&&!/free\s*now/i.test(s.section||"")&&(s.kind!=="filter"&&s.items&&s.items.length)).sort((a,b)=>(/short/i.test(a.section)?1:0)-(/short/i.test(b.section)?1:0));
   await Promise.all([Promise.race([meReady,T(450)]),ban.length?Promise.race([probe(ban[0].poster_url),T(1200)]):0]);
