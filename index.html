@@ -1906,8 +1906,8 @@ function playerUI(box,video,C){
 
 
 function dtap(box,video){let lt=0,lx=0;const hint=(side,txt)=>{const d=h("div",{class:"dtr "+side},h("span",{},txt));box.append(d);setTimeout(()=>d.remove(),650)};
-  box.addEventListener("touchend",e=>{if(e.touches.length||(e.target.closest&&e.target.closest(".countdown,.cd,.msg,.psk,.pskt")))return;const t=e.changedTouches[0],r=box.getBoundingClientRect(),x=(t.clientX-r.left)/r.width,y=(t.clientY-r.top)/r.height,n=Date.now();
-    if(y>.72){lt=0;return}
+  box.addEventListener("touchend",e=>{if(e.touches.length||(e.target.closest&&e.target.closest(".countdown,.cd,.msg,.psk,.pskt,.pb,.ps,.pm,.pe,.pv,.pbar,button,input,select")))return;const t=e.changedTouches[0],r=box.getBoundingClientRect(),x=(t.clientX-r.left)/r.width,n=Date.now();
+    /* same double-tap skip animation everywhere on the screen (also in the strip around the seek bar); the buttons / seek bar themselves are skipped above */
     if(n-lt<320&&Math.abs(t.clientX-lx)<70){lt=0;if(!video.duration)return;if(x<.4){video.currentTime=Math.max(0,video.currentTime-10);hint("l","\u00ab 10s");e.preventDefault()}else if(x>.6){video.currentTime=Math.min(video.duration,video.currentTime+10);hint("r","10s \u00bb");e.preventDefault()}}
     else{lt=n;lx=t.clientX}},{passive:false})}
 
