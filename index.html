@@ -1935,15 +1935,17 @@ async function watch(id,slug,se,ep){
   let picNow=PICS[store.get("pic")]?store.get("pic"):"standard";
   /* Auto brightness: saved globally (key "ab": 0 off = default, f fast, s smooth), so one choice applies to every video */
   let abMode=["f","s"].includes(store.get("ab"))?store.get("ab"):"0",abCur=1,abOK=true,abT=0;
-  const applyF=()=>{video.style.filter=(PICS[picNow][1]+(abMode!=="0"&&abCur!==1?" brightness("+abCur.toFixed(2)+")":"")).trim()};
+  /* precise lift: gamma curve (only dark/mid tones rise, highlights like fire stay put), measured on the geometric mean of the centre of the frame */
+  const abFn=(()=>{let sv=document.getElementById("jfab-svg");if(!sv){sv=document.createElementNS("http://www.w3.org/2000/svg","svg");sv.id="jfab-svg";sv.setAttribute("width","0");sv.setAttribute("height","0");sv.style.cssText="position:absolute;width:0;height:0";sv.innerHTML='<filter id="jfab" color-interpolation-filters="sRGB"><feComponentTransfer><feFuncR type="gamma" exponent="1"/><feFuncG type="gamma" exponent="1"/><feFuncB type="gamma" exponent="1"/></feComponentTransfer></filter>';document.body.appendChild(sv)}return sv.querySelectorAll("feFuncR,feFuncG,feFuncB")})();
+  const applyF=()=>{const on=abMode!=="0"&&abCur<.995;if(on){const e=abCur.toFixed(3);abFn.forEach(f=>f.setAttribute("exponent",e))}video.style.filter=((on?"url(#jfab) ":"")+PICS[picNow][1]).trim()};
   const setPic=k=>{picNow=k;applyF();store.set("pic",k)};
-  const abCv=document.createElement("canvas");abCv.width=16;abCv.height=9;const abCx=abCv.getContext("2d",{willReadFrequently:true});
+  const abCv=document.createElement("canvas");abCv.width=32;abCv.height=18;const abCx=abCv.getContext("2d",{willReadFrequently:true});
   const abTick=()=>{if(!document.body.contains(video)||abMode==="0"){abT=0;return}
     if(!video.paused&&video.readyState>=2&&abOK&&video.videoWidth){
-      try{const vw=video.videoWidth,vh=video.videoHeight;abCx.drawImage(video,vw*.1,vh*.2,vw*.8,vh*.6,0,0,16,9);/* centre crop so black bars don't count */
-        const dd=abCx.getImageData(0,0,16,9).data;let sm=0;for(let i=0;i<dd.length;i+=4)sm+=.2126*dd[i]+.7152*dd[i+1]+.0722*dd[i+2];
-        const avg=sm/(dd.length/4)/255,t=Math.min(2.3,Math.max(.9,.5/Math.max(avg,.05)));
-        if(abMode==="f")abCur=Math.abs(t-abCur)>.3?t:abCur+(t-abCur)*.6;else abCur+=(t-abCur)*.15;
+      try{const vw=video.videoWidth,vh=video.videoHeight;abCx.drawImage(video,vw*.1,vh*.2,vw*.8,vh*.6,0,0,32,18);/* centre crop so black bars don't count */
+        const dd=abCx.getImageData(0,0,32,18).data,n=dd.length/4;let lg=0;for(let i=0;i<dd.length;i+=4)lg+=Math.log(Math.max((.2126*dd[i]+.7152*dd[i+1]+.0722*dd[i+2])/255,.02));
+        const av=Math.exp(lg/n),t=Math.min(1,Math.max(.42,Math.log(.36)/Math.log(Math.min(av,.99))));/* av 0.36 or brighter = untouched */
+        if(abMode==="f")abCur=Math.abs(t-abCur)>.15?t:abCur+(t-abCur)*.6;else abCur+=(t-abCur)*.15;
         applyF()}catch(e){abOK=false;abCur=1;applyF()}}
     abT=setTimeout(abTick,abMode==="f"?60:300)};
   const abStart=()=>{clearTimeout(abT);abT=0;abOK=true;if(abMode==="0"){abCur=1;applyF();return}abTick()};
